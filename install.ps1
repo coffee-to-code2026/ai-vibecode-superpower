@@ -72,17 +72,28 @@ function Assert-TomlRoles([string]$Directory, [string]$Manifest, [int]$ExpectedC
     }
 }
 
-function Assert-AgentProfiles([string]$Directory, [string]$Manifest, [int]$ExpectedCount) {
+function Assert-AgentProfiles([string]$Directory, [string]$Manifest, [int]$ExpectedCount, [string]$Variant, [int]$Strict = 1) {
     $hashes = @{}
     foreach ($line in Get-Content -LiteralPath $Manifest) {
         if ($line -notmatch '^([0-9a-f]{64}) {2}([^\s]+)$') { throw "Invalid agent manifest: $Manifest" }
         $hashes[$Matches[2]] = $Matches[1]
     }
     if ($hashes.Count -ne $ExpectedCount) { throw "Expected $ExpectedCount managed agent hashes" }
-    $files = @(Get-ChildItem -LiteralPath $Directory -Filter '*.md' -File)
-    if ($files.Count -ne $ExpectedCount) { throw "Expected $ExpectedCount managed agent files" }
+    if ($Strict -eq 1) {
+        $files = @(Get-ChildItem -LiteralPath $Directory -Filter '*.md' -File)
+        if ($files.Count -ne $ExpectedCount) { throw "Expected $ExpectedCount managed agent files" }
+    } else {
+        foreach ($name in $hashes.Keys) {
+            if (-not (Test-Path -LiteralPath (Join-Path $Directory $name) -PathType Leaf)) { throw "Missing managed agent: $name" }
+        }
+        $files = @(Get-ChildItem -LiteralPath $Directory -Filter '*.md' -File)
+    }
     foreach ($file in $files) {
-        if (-not $hashes.ContainsKey($file.Name) -or (Get-NormalizedHash $file.FullName) -ne $hashes[$file.Name]) { throw "Agent hash mismatch: $($file.Name)" }
+        if (-not $hashes.ContainsKey($file.Name)) {
+            if ($Strict -eq 1) { throw "Unexpected managed agent: $($file.Name)" }
+            continue
+        }
+        if ((Get-NormalizedHash $file.FullName) -ne $hashes[$file.Name]) { throw "Agent hash mismatch: $($file.Name)" }
         $text = Get-Content -LiteralPath $file.FullName -Raw
         $lines = $text -split "`r?`n"
         if ($lines.Count -lt 2 -or $lines[0] -ne '---') { throw "Agent frontmatter missing: $($file.Name)" }
@@ -90,17 +101,28 @@ function Assert-AgentProfiles([string]$Directory, [string]$Manifest, [int]$Expec
         for ($i = 1; $i -lt $lines.Count; $i++) { if ($lines[$i] -eq '---') { $end = $i; break } }
         if ($end -lt 1) { throw "Agent frontmatter unterminated: $($file.Name)" }
         $frontmatter = $lines[1..($end - 1)] -join "`n"
+        $requiredKeys = if ($Variant -eq 'mdopencode') { @('name', 'description', 'mode', 'model') } else { @('name', 'description', 'model', 'thoughtLevel') }
         $name = $null
-        foreach ($key in 'name', 'description', 'model', 'thoughtLevel') {
+        foreach ($key in $requiredKeys) {
             if ($frontmatter -notmatch "(?m)^$key\s*:") { throw "Agent field missing: $($file.Name)/$key" }
             if ($key -eq 'name' -and $frontmatter -match '(?m)^name\s*:\s*"?([^\r\n"]+?)"?\s*$') { $name = $Matches[1].Trim() }
+        }
+        if ($Variant -eq 'mdopencode') {
+            if ($frontmatter -notmatch '(?m)^options\s*:$') { throw "Agent options block missing: $($file.Name)" }
+            if ($frontmatter -notmatch '(?m)^\s+reasoningEffort\s*:') { throw "Agent options.reasoningEffort missing: $($file.Name)" }
         }
         if ($name -ne $file.BaseName) { throw "Agent name mismatch: $($file.Name)/$name" }
     }
 }
 
-function Assert-ManagedRoles([string]$Kind, [string]$Directory, [string]$Manifest, [int]$ExpectedCount) {
-    if ($Kind -eq 'toml') { Assert-TomlRoles $Directory $Manifest $ExpectedCount } else { Assert-AgentProfiles $Directory $Manifest $ExpectedCount }
+function Assert-ManagedRoles([string]$Kind, [string]$Directory, [string]$Manifest, [int]$ExpectedCount, [int]$Strict = 1) {
+    switch ($Kind) {
+        'toml' { Assert-TomlRoles $Directory $Manifest $ExpectedCount }
+        'md' { Assert-AgentProfiles $Directory $Manifest $ExpectedCount 'md' $Strict }
+        'mdopencode' { Assert-AgentProfiles $Directory $Manifest $ExpectedCount 'mdopencode' $Strict }
+        'none' { }
+        default { throw "Unknown role kind: $Kind" }
+    }
 }
 
 function Assert-SafeTomlMergeInput([string]$Path) {
@@ -316,6 +338,7 @@ $sourceSystemDocs = Join-Path $root 'shared\docs\system'
 $clientProfiles = [ordered]@{
     codex = @{
         Label = 'Codex'; HomeEnv = 'CODEX_HOME'; DefaultHome = '.codex'; RoleKind = 'toml'; RoleCount = 12; Placeholder = 'CODEX_HOME'
+        ConfigMode = 'toml'; RolesInstall = 'directory'; RolesRel = 'agents\ai-vibecode-superpower'
         Roles = Join-Path $root 'codex-global-config\agents\ai-vibecode-superpower'
         Manifest = Join-Path $root 'codex-global-config\agents\ai-vibecode-superpower.sha256'
         Instructions = Join-Path $root 'codex-global-config\AGENTS.md'
@@ -331,6 +354,7 @@ $clientProfiles = [ordered]@{
     }
     zcode = @{
         Label = 'ZCode'; HomeEnv = 'ZCODE_HOME'; DefaultHome = '.zcode'; RoleKind = 'md'; RoleCount = 5; Placeholder = 'ZCODE_HOME'
+        ConfigMode = 'none'; RolesInstall = 'directory'; RolesRel = 'agents\ai-vibecode-superpower'
         Roles = Join-Path $root 'zcode-global-config\agents\ai-vibecode-superpower'
         Manifest = Join-Path $root 'zcode-global-config\agents\ai-vibecode-superpower.sha256'
         Instructions = Join-Path $root 'zcode-global-config\AGENTS.md'
@@ -341,23 +365,59 @@ $clientProfiles = [ordered]@{
             @{ Name = 'orchestrate-model-workflow'; Source = (Join-Path $root 'zcode-global-config\skills\orchestrate-model-workflow') }
         )
     }
+    opencode = @{
+        Label = 'opencode'; HomeEnv = 'OPENCODE_HOME'; DefaultHome = '.config\opencode'; RoleKind = 'mdopencode'; RoleCount = 12; Placeholder = 'OPENCODE_HOME'
+        ConfigMode = 'opencode-json'; RolesInstall = 'files'; RolesRel = 'agent'
+        Roles = Join-Path $root 'opencode-global-config\agents\ai-vibecode-superpower'
+        Manifest = Join-Path $root 'opencode-global-config\agents\ai-vibecode-superpower.sha256'
+        Instructions = Join-Path $root 'opencode-global-config\AGENTS.md'
+        Docs = Join-Path $root 'opencode-global-config\docs'
+        ConfigSource = Join-Path $root 'opencode-global-config\opencode.json'
+        Skills = @(
+            @{ Name = 'agent-toolchain'; Source = (Join-Path $root 'opencode-global-config\skills\agent-toolchain') },
+            @{ Name = 'orchestrate-model-workflow'; Source = (Join-Path $root 'opencode-global-config\skills\orchestrate-model-workflow') },
+            @{ Name = 'project-doc-planner'; Source = (Join-Path $root 'shared\skills\project-doc-planner') }
+        )
+    }
+    dsh = @{
+        Label = 'dsh'; HomeEnv = 'DSH_HOME'; DefaultHome = '.dsh'; RoleKind = 'none'; RoleCount = 0; Placeholder = 'DSH_HOME'
+        ConfigMode = 'dsh-probe'; RolesInstall = 'none'; RolesRel = ''
+        Instructions = Join-Path $root 'dsh-global-config\AGENTS.md'
+        Docs = Join-Path $root 'dsh-global-config\docs'
+        Skills = @(
+            @{ Name = 'orchestrate-model-workflow'; Source = (Join-Path $root 'dsh-global-config\skills\orchestrate-model-workflow') }
+        )
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($Client)) {
-    if ([Console]::IsInputRedirected) { throw "No client specified. Usage: .\install.ps1 -Client <$($clientProfiles.Keys -join '|')>" }
+    $allClients = @($clientProfiles.Keys)
+    if ([Console]::IsInputRedirected) { throw "No client specified. Usage: .\install.ps1 -Client <$((@($allClients) + 'all') -join '|')>" }
     Write-Host 'Select the client to install:'
     $index = 1
-    foreach ($name in $clientProfiles.Keys) { Write-Host ("  {0}) {1}" -f $index, $clientProfiles[$name].Label); $index++ }
+    foreach ($name in $allClients) { Write-Host ("  {0}) {1}" -f $index, $clientProfiles[$name].Label); $index++ }
+    Write-Host ("  {0}) All" -f $index)
     $choice = Read-Host 'Enter number or name (q to quit)'
     if ($choice -match '^[qQ]$') { return }
-    if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le $clientProfiles.Count) {
-        $Client = @($clientProfiles.Keys)[[int]$choice - 1]
+    if ($choice -match '^\d+$' -and [int]$choice -ge 1 -and [int]$choice -le ($allClients.Count + 1)) {
+        if ([int]$choice -le $allClients.Count) { $Client = $allClients[[int]$choice - 1] } else { $Client = 'all' }
     } else {
         $Client = $choice
     }
 }
 $Client = $Client.Trim().ToLowerInvariant()
-if (-not $clientProfiles.Contains($Client)) { throw "Unknown client: $Client (supported: $($clientProfiles.Keys -join '|'))" }
+if ($Client -eq 'all') {
+    $allClients = @($clientProfiles.Keys)
+    foreach ($name in $allClients) {
+        Write-Host "=== 安装 $name ==="
+        $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+        & $pwsh -NoLogo -NoProfile -File $PSCommandPath -Client $name
+        if ($LASTEXITCODE -ne 0) { throw "客户端 $name 安装失败；后续客户端未继续。" }
+    }
+    Write-Host '四个客户端均已安装完成。'
+    return
+}
+if (-not $clientProfiles.Contains($Client)) { throw "Unknown client: $Client (supported: $((@($clientProfiles.Keys) + 'all') -join '|'))" }
 $profile = $clientProfiles[$Client]
 $label = $profile.Label
 
@@ -366,8 +426,12 @@ $homeEnvValue = [Environment]::GetEnvironmentVariable($profile.HomeEnv)
 $homePath = if ($homeEnvValue) { [IO.Path]::GetFullPath($homeEnvValue) } else { [IO.Path]::GetFullPath((Join-Path $profilePath $profile.DefaultHome)) }
 if ([string]::IsNullOrWhiteSpace($homePath) -or [IO.Path]::GetPathRoot($homePath).TrimEnd('\') -eq $homePath.TrimEnd('\')) { throw "Refusing unsafe $label home: $homePath" }
 
-foreach ($path in @($profile.Roles, $profile.Manifest, $profile.Docs, $sourceSystemDocs, $profile.Instructions)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing source: $path" } }
-if ($profile.Contains('ConfigTemplate')) { foreach ($path in @($profile.ConfigTemplate, $profile.ProviderSettings)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing source: $path" } } }
+if ($Client -eq 'dsh' -and -not (Get-Command dsh -ErrorAction SilentlyContinue)) { throw '未找到 dsh 命令；请先安装 @deepseek-ai/dsh 并运行一次 dsh web，再重新运行本脚本。' }
+
+foreach ($path in @($profile.Docs, $sourceSystemDocs, $profile.Instructions)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing source: $path" } }
+if ($profile.Contains('Roles')) { foreach ($path in @($profile.Roles, $profile.Manifest)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing source: $path" } } }
+if ($profile.ConfigMode -eq 'toml') { foreach ($path in @($profile.ConfigTemplate, $profile.ProviderSettings)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing source: $path" } } }
+if ($profile.ConfigMode -eq 'opencode-json') { if (-not (Test-Path -LiteralPath $profile.ConfigSource)) { throw "Missing source: $($profile.ConfigSource)" } }
 foreach ($skill in $profile.Skills) {
     if (-not (Test-Path -LiteralPath $skill.Source -PathType Container)) { throw "Missing skill: $($skill.Name)" }
     if (-not (Test-Path -LiteralPath (Join-Path $skill.Source 'SKILL.md') -PathType Leaf)) { throw "Missing SKILL.md for skill: $($skill.Name)" }
@@ -379,36 +443,52 @@ Assert-NoReparse $root
 Assert-NoReparseChain $homePath
 
 $existingConfig = $null
-if ($profile.Contains('ConfigTemplate')) { $existingConfig = Join-Path $homePath 'config.toml' }
+if ($profile.ConfigMode -eq 'toml') { $existingConfig = Join-Path $homePath 'config.toml' }
+$stagedOpenCodeJson = $null
+if ($profile.ConfigMode -eq 'opencode-json' -and -not (Test-Path -LiteralPath (Join-Path $homePath 'opencode.json'))) { $stagedOpenCodeJson = Join-Path $homePath 'opencode.json' }
 
 $stage = Join-Path $homePath ('.install-stage-' + [Guid]::NewGuid().ToString('N'))
 $backup = $null
 $targets = @(
     @{ Name='AGENTS.md'; Target=(Join-Path $homePath 'AGENTS.md'); Candidate=(Join-Path $stage 'AGENTS.md'); Kind='File'; BackedUp=$false; InstallStarted=$false },
-    @{ Name='docs'; Target=(Join-Path $homePath 'docs'); Candidate=(Join-Path $stage 'docs'); Kind='Directory'; BackedUp=$false; InstallStarted=$false },
-    @{ Name='agents/ai-vibecode-superpower'; Target=(Join-Path $homePath 'agents\ai-vibecode-superpower'); Candidate=(Join-Path $stage 'agents\ai-vibecode-superpower'); Kind='Directory'; BackedUp=$false; InstallStarted=$false }
+    @{ Name='docs'; Target=(Join-Path $homePath 'docs'); Candidate=(Join-Path $stage 'docs'); Kind='Directory'; BackedUp=$false; InstallStarted=$false }
 )
 if ($null -ne $existingConfig) {
     $targets = @(@{ Name='config.toml'; Target=$existingConfig; Candidate=(Join-Path $stage 'config.toml'); Kind='File'; BackedUp=$false; InstallStarted=$false }) + $targets
 }
+if ($null -ne $stagedOpenCodeJson) {
+    $targets = @(@{ Name='opencode.json'; Target=$stagedOpenCodeJson; Candidate=(Join-Path $stage 'opencode.json'); Kind='File'; BackedUp=$false; InstallStarted=$false }) + $targets
+}
+if ($profile.RolesInstall -eq 'directory') {
+    $targets += @{ Name='agents/ai-vibecode-superpower'; Target=(Join-Path $homePath $profile.RolesRel); Candidate=(Join-Path $stage 'agents\ai-vibecode-superpower'); Kind='Directory'; BackedUp=$false; InstallStarted=$false }
+} elseif ($profile.RolesInstall -eq 'files') {
+    foreach ($file in Get-ChildItem -LiteralPath $profile.Roles -Filter '*.md' -File) {
+        $targets += @{ Name="agent/$($file.Name)"; Target=(Join-Path $homePath "agent\$($file.Name)"); Candidate=(Join-Path $stage "agents\ai-vibecode-superpower\$($file.Name)"); Kind='File'; BackedUp=$false; InstallStarted=$false }
+    }
+}
 foreach ($skill in $profile.Skills) { $targets += @{ Name="skills/$($skill.Name)"; Target=(Join-Path $homePath "skills\$($skill.Name)"); Candidate=(Join-Path $stage "skills\$($skill.Name)"); Kind='Directory'; BackedUp=$false; InstallStarted=$false } }
 foreach ($target in $targets) { Assert-InstallTarget $target.Target $target.Kind }
-foreach ($container in @((Join-Path $homePath 'agents'),(Join-Path $homePath 'skills'),(Join-Path $homePath 'backups'))) { Assert-InstallContainer $container }
+$containers = @((Join-Path $homePath 'skills'),(Join-Path $homePath 'backups'))
+if ($profile.RolesInstall -eq 'directory') { $containers += (Join-Path $homePath 'agents') }
+if ($profile.RolesInstall -eq 'files') { $containers += (Join-Path $homePath 'agent') }
+foreach ($container in $containers) { Assert-InstallContainer $container }
 
 try {
     New-Item -ItemType Directory -Path $homePath -Force | Out-Null
     Assert-NoReparseChain $homePath
     New-Item -ItemType Directory -Path $stage -Force | Out-Null
-    New-Item -ItemType Directory -Path (Join-Path $stage 'agents') -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $stage 'skills') -Force | Out-Null
+    if ($profile.RolesInstall -ne 'none') { New-Item -ItemType Directory -Path (Join-Path $stage 'agents\ai-vibecode-superpower') -Force | Out-Null }
     Copy-Item $profile.Instructions (Join-Path $stage 'AGENTS.md')
     Copy-Item $profile.Docs (Join-Path $stage 'docs') -Recurse
     Copy-Item $sourceSystemDocs (Join-Path $stage 'docs\system') -Recurse
-    Copy-Item $profile.Roles (Join-Path $stage 'agents') -Recurse
+    if ($profile.RolesInstall -eq 'directory') { Copy-Item $profile.Roles (Join-Path $stage 'agents') -Recurse }
+    elseif ($profile.RolesInstall -eq 'files') { Copy-Item (Join-Path $profile.Roles '*') (Join-Path $stage 'agents\ai-vibecode-superpower') }
     foreach ($skill in $profile.Skills) { Copy-Item $skill.Source (Join-Path $stage 'skills') -Recurse }
     if ($null -ne $existingConfig) { Merge-Config $profile.ConfigTemplate $existingConfig $profile.ProviderSettings (Join-Path $stage 'config.toml') }
+    if ($null -ne $stagedOpenCodeJson) { Copy-Item $profile.ConfigSource (Join-Path $stage 'opencode.json') }
     Expand-Placeholders $stage $profile.Placeholder $homePath
-    Assert-ManagedRoles $profile.RoleKind (Join-Path $stage 'agents\ai-vibecode-superpower') $profile.Manifest $profile.RoleCount
+    if ($profile.RolesInstall -ne 'none') { Assert-ManagedRoles $profile.RoleKind (Join-Path $stage 'agents\ai-vibecode-superpower') $profile.Manifest $profile.RoleCount }
 
     $backupRoot = Join-Path $homePath 'backups'
     New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
@@ -428,11 +508,38 @@ try {
             Move-Item -LiteralPath $target.Candidate -Destination $target.Target
         }
     }
-    Assert-ManagedRoles $profile.RoleKind (Join-Path $homePath 'agents\ai-vibecode-superpower') $profile.Manifest $profile.RoleCount
+    if ($profile.RolesInstall -ne 'none') { Assert-ManagedRoles $profile.RoleKind (Join-Path $homePath $profile.RolesRel) $profile.Manifest $profile.RoleCount $(if ($profile.RolesInstall -eq 'files') { 0 } else { 1 }) }
     Write-Host "$label configuration installed in: $homePath"
-    Write-Host 'Standalone skills and managed agent roles installed.'
+    if ($profile.RolesInstall -eq 'none') { Write-Host 'Standalone skills installed.' } else { Write-Host 'Standalone skills and managed agent roles installed.' }
     Write-Host "Backup directory: $backup"
-    if ($Client -eq 'zcode') { Write-Host 'Unmanaged ZCode state (cli/, v2/, plugins, other skills and agents) was not modified.' }
+    switch ($Client) {
+        'zcode' { Write-Host 'Unmanaged ZCode state (cli/, v2/, plugins, other skills and agents) was not modified.' }
+        'opencode' {
+            if ($null -eq $stagedOpenCodeJson) {
+                Write-Host 'opencode.json 已存在，安装器没有覆盖。如需启用默认模型，请手动合并 model 字段：'
+                Write-Host '  "model": "merge-ai/deepseek-v4-flash",'
+            }
+            Write-Host 'Unmanaged opencode state (unrelated agents/skills) was not modified.'
+        }
+        'dsh' {
+            Write-Host 'Unmanaged DSH state (settings.yaml, cli/, plugins and other skills) was not modified.'
+            $settingsPath = Join-Path $homePath 'settings.yaml'
+            Write-Host '检查模型分层配置 ...'
+            if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+                $settingsText = Get-Content -LiteralPath $settingsPath -Raw
+                $flashOk = $settingsText -match 'deepseek-v4-flash-0731'
+                $proOk = $settingsText -match 'deepseek-v4-pro-0813'
+                if ($flashOk -and $proOk) {
+                    Write-Host '已检测到 flash 与 pro 两个模型档，分层可用。'
+                } else {
+                    Write-Host '注意：settings.yaml 未同时包含 deepseek-v4-flash-0731 与 deepseek-v4-pro-0813。'
+                    Write-Host 'orchestrate-model-workflow 的 Luna(flash)/Terra+Sol(pro) 分层需要这两个模型档，请按需补充。'
+                }
+            } else {
+                Write-Host "未找到 $settingsPath；模型分层请按需在 DSH 配置中声明两个模型档。"
+            }
+        }
+    }
 }
 catch {
     $original = $_.Exception.Message

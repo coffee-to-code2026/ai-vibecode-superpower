@@ -1,6 +1,6 @@
 # ai-vibecode-superpower
 
-本仓库维护可安装的 Codex 与 ZCode 全局配置、agent role 与 standalone skills；两宿主的差异通过 `codex-global-config/` 与 `zcode-global-config/` 目录隔离。项目级约定只在本文件说明；运行时全局行为不在此复制。
+本仓库维护可安装的 Codex、ZCode、opencode 与 DeepSeek Harness（dsh）全局配置、agent role 与 standalone skills；各宿主的差异通过 `codex-global-config/`、`zcode-global-config/`、`opencode-global-config/` 与 `dsh-global-config/` 目录隔离。项目级约定只在本文件说明；运行时全局行为不在此复制。
 
 ## 提示词与文档写作
 
@@ -16,15 +16,15 @@
 
 1. `README.md` 是使用者手册：只说明用途、适用场景、简明工作流、安装入口和可选能力。
 2. 不在 README 重复 role 路由、模型选择、消息字段、权限边界、并发限制、配置合并或安装器实现细节。
-3. 技术规则只在其权威来源维护：项目文档边界在本文件，工作流在 `codex-global-config/skills/orchestrate-model-workflow/SKILL.md` 与 `zcode-global-config/skills/orchestrate-model-workflow/SKILL.md`，role 边界在 `codex-global-config/agents/ai-vibecode-superpower/` 与 `zcode-global-config/agents/ai-vibecode-superpower/`，安装行为在安装脚本。README 仅在确有必要时链接这些来源。
+3. 技术规则只在其权威来源维护：项目文档边界在本文件，工作流在 `codex-global-config/skills/orchestrate-model-workflow/SKILL.md`、`zcode-global-config/skills/orchestrate-model-workflow/SKILL.md`、`opencode-global-config/skills/orchestrate-model-workflow/SKILL.md` 与 `dsh-global-config/skills/orchestrate-model-workflow/SKILL.md`，role 边界在 `codex-global-config/agents/ai-vibecode-superpower/`、`zcode-global-config/agents/ai-vibecode-superpower/` 与 `opencode-global-config/agents/ai-vibecode-superpower/`，安装行为在安装脚本。README 仅在确有必要时链接这些来源。
 
 ## 权威来源
 
-- 共享平台文档与工具无关 skills：`shared/`（`docs/system/`、`agent-toolchain`、`project-doc-planner`），由两个安装器共同安装。
-- Codex 全局行为规范：`codex-global-config/AGENTS.md`；安装后对应用户级 Codex home 中的 `AGENTS.md`。ZCode 对应 `zcode-global-config/AGENTS.md` 与用户级 ZCode home（`~/.zcode`）。
-- 工作流路由、交接与验收：`codex-global-config/skills/orchestrate-model-workflow/SKILL.md`（Codex 变体）与 `zcode-global-config/skills/orchestrate-model-workflow/SKILL.md`（ZCode 变体）。
-- role 本地权限与输出边界：`codex-global-config/agents/ai-vibecode-superpower/`（12 个 toml role）与 `zcode-global-config/agents/ai-vibecode-superpower/`（5 个 md agent）。角色命名统一为 `模型_版本_类型_思考档`（如 `glm_5.3_flash_low`、`gpt_5.6_luna_high`），同模型同档位冲突时追加职责后缀。
-- 安装与合并逻辑：`install.ps1`、`install.sh`（每平台一个安装器，交互选择客户端或以 `-Client`/位置参数指定）；不要直接编辑已安装的全局副本作为最终修改。
+- 共享平台文档与工具无关 skills：`shared/`（`docs/system/`、`agent-toolchain`、`project-doc-planner`），由各客户端的安装器共同安装。
+- Codex 全局行为规范：`codex-global-config/AGENTS.md`；安装后对应用户级 Codex home 中的 `AGENTS.md`。ZCode 对应 `zcode-global-config/AGENTS.md` 与用户级 ZCode home（`~/.zcode`），opencode 对应 `opencode-global-config/AGENTS.md` 与 `~/.config/opencode`，dsh 对应 `dsh-global-config/AGENTS.md` 与 `$DSH_HOME`（默认 `~/.dsh`）。
+- 工作流路由、交接与验收：`codex-global-config/skills/orchestrate-model-workflow/SKILL.md`（Codex 变体）、`zcode-global-config/skills/orchestrate-model-workflow/SKILL.md`（ZCode 变体）、`opencode-global-config/skills/orchestrate-model-workflow/SKILL.md`（opencode 变体）与 `dsh-global-config/skills/orchestrate-model-workflow/SKILL.md`（dsh 变体）。
+- role 本地权限与输出边界：`codex-global-config/agents/ai-vibecode-superpower/`（12 个 toml role）、`zcode-global-config/agents/ai-vibecode-superpower/`（5 个 md agent）与 `opencode-global-config/agents/ai-vibecode-superpower/`（12 个 md subagent，deepseek 模型）。角色命名统一为 `模型_版本_类型_思考档`（如 `glm_5.3_flash_low`、`gpt_5.6_luna_high`、`deepseek_v4_flash_luna_high`），同模型同档位冲突时追加职责后缀。dsh 没有角色文件机制，角色只作为 skill 内的模型档与职责选择依据。
+- 安装与合并逻辑：`install.ps1`、`install.sh`（每平台一个安装器，交互选择客户端或以 `-Client`/位置参数指定，支持 `all` 一次安装全部客户端）；不要直接编辑已安装的全局副本作为最终修改。
 
 ## 修改与验证
 

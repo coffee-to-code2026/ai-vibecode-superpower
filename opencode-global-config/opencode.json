@@ -1,0 +1,5 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "merge-ai/deepseek-v4-flash",
+  "default_agent": "build"
+}

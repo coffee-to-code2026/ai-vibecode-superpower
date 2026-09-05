@@ -510,7 +510,7 @@ test('merged POSIX installer requires an explicit client when stdin is not inter
   if (!shell) return t.skip('POSIX shell is unavailable');
   const result = await runResult(shell, ['install.sh'], { cwd: repository });
   assert.notEqual(result.code, 0, result.stdout);
-  assert.match(result.stdout + '\n' + result.stderr, /No client specified\. Usage: sh install\.sh <codex\|zcode>/);
+  assert.match(result.stdout + '\n' + result.stderr, /No client specified\. Usage: sh install\.sh <codex\|zcode\|opencode\|dsh\|all>/);
 });
 
 test('merged POSIX installer rejects unknown clients', async (t) => {
@@ -524,5 +524,295 @@ test('merged POSIX installer rejects unknown clients', async (t) => {
 test('merged PowerShell installer requires an explicit client when input is redirected', { skip: process.platform !== 'win32' }, async () => {
   const result = await runResult('pwsh.exe', ['-NoLogo', '-NoProfile', '-File', powerInstaller], { cwd: repository });
   assert.notEqual(result.code, 0, result.stdout);
-  assert.match(result.stdout + '\n' + result.stderr, /No client specified\. Usage: \.\\install\.ps1 -Client <codex\|zcode>/);
+  assert.match(result.stdout + '\n' + result.stderr, /No client specified\. Usage: \.\\install\.ps1 -Client <codex\|zcode\|opencode\|dsh\|all>/);
+});
+
+const opencodeRolesDir = path.join(repository, 'opencode-global-config', 'agents', 'ai-vibecode-superpower');
+const opencodeManifestFile = path.join(repository, 'opencode-global-config', 'agents', 'ai-vibecode-superpower.sha256');
+const opencodeRoleNames = [
+  'deepseek_v4_flash_luna_high', 'deepseek_v4_flash_luna_xhigh',
+  'deepseek_v4_flash_luna_high_executor', 'deepseek_v4_flash_luna_xhigh_executor',
+  'deepseek_v4_pro_terra_high', 'deepseek_v4_pro_terra_xhigh', 'deepseek_v4_pro_terra_xhigh_readonly',
+  'deepseek_v4_pro_terra_low_readonly', 'deepseek_v4_pro_terra_medium_readonly',
+  'deepseek_v4_pro_sol_high', 'deepseek_v4_pro_sol_xhigh', 'deepseek_v4_pro_sol_max'
+];
+
+test('opencode workflow skill variant keeps the stages and references deepseek roles without host leakage', async () => {
+  const text = await readFile(path.join(repository, 'opencode-global-config', 'skills', 'orchestrate-model-workflow', 'SKILL.md'), 'utf8');
+  assert.match(text, /^---\r?\nname: orchestrate-model-workflow\r?\n/);
+  for (const stage of ['Explore', 'Plan', 'Work', 'Critique', 'Promote']) assert.match(text, new RegExp(`\\b${stage}\\b`));
+  for (const role of opencodeRoleNames) assert.match(text, new RegExp(`\\b${role.replace(/\./g, '\\.')}\\b`));
+  assert.match(text, /subagent_type/);
+  assert.match(text, /<OPENCODE_HOME>/);
+  assert.match(text, /模型_版本_类型_思考档/);
+  assert.match(text, /默认并行优先/);
+  assert.match(text, /fallback 仅对本次派发生效，是临时且可重新评估的选择/);
+  assert.match(text, /不得把写入任务派给只读角色/);
+  assert.match(text, /风险与回滚、验收、验证、停止条件/);
+  assert.match(text, /`flash` 档承载 Luna 的常规取证与受控写入，`pro` 档承载 Terra 的受保护执行与 Sol 的独立复审/);
+  for (const forbidden of ['CODEX_HOME', 'ZCODE_HOME', 'gpt-5\\.6', 'glm_5\\.3', 'sandbox_mode', 'avsp_']) assert.doesNotMatch(text, new RegExp(forbidden));
+});
+
+test('all twelve managed opencode agents stay hash-addressed with deepseek model routing frontmatter', async () => {
+  const expectedAllocation = {
+    'deepseek_v4_flash_luna_high.md': { model: 'merge-ai/deepseek-v4-flash', effort: 'high' },
+    'deepseek_v4_flash_luna_xhigh.md': { model: 'merge-ai/deepseek-v4-flash', effort: 'xhigh' },
+    'deepseek_v4_flash_luna_high_executor.md': { model: 'merge-ai/deepseek-v4-flash', effort: 'high' },
+    'deepseek_v4_flash_luna_xhigh_executor.md': { model: 'merge-ai/deepseek-v4-flash', effort: 'xhigh' },
+    'deepseek_v4_pro_terra_high.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'high' },
+    'deepseek_v4_pro_terra_xhigh.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'xhigh' },
+    'deepseek_v4_pro_terra_xhigh_readonly.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'xhigh' },
+    'deepseek_v4_pro_terra_low_readonly.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'low' },
+    'deepseek_v4_pro_terra_medium_readonly.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'medium' },
+    'deepseek_v4_pro_sol_high.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'high' },
+    'deepseek_v4_pro_sol_xhigh.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'xhigh' },
+    'deepseek_v4_pro_sol_max.md': { model: 'merge-ai/deepseek-v4-pro', effort: 'max' }
+  };
+  const writerRoles = new Set(['deepseek_v4_flash_luna_high_executor', 'deepseek_v4_flash_luna_xhigh_executor', 'deepseek_v4_pro_terra_high']);
+  const lines = (await readFile(opencodeManifestFile, 'utf8')).trim().split(/\r?\n/);
+  assert.equal(lines.length, 12);
+  const entries = new Map(lines.map((line) => {
+    const match = line.trim().match(/^([0-9a-f]{64})\s+([^\s]+)$/);
+    assert.ok(match, `invalid opencode manifest line: ${line}`);
+    return [match[2], match[1]];
+  }));
+  const files = (await readdir(opencodeRolesDir)).filter((name) => name.endsWith('.md')).sort();
+  assert.equal(files.length, 12);
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const file of files) {
+    const source = await readFile(path.join(opencodeRolesDir, file));
+    assert.equal(entries.get(file), normalizedHash(source), `opencode manifest hash mismatch: ${file}`);
+    const text = source.toString('utf8');
+    const frontmatterEnd = text.indexOf('\n---', 3);
+    assert.ok(frontmatterEnd > 0, `opencode agent frontmatter unterminated: ${file}`);
+    const frontmatter = text.slice(0, frontmatterEnd);
+    for (const key of ['name', 'description', 'mode', 'model']) assert.match(frontmatter, new RegExp(`^${key}:`, 'm'));
+    assert.match(frontmatter, /^options\s*:\s*$/m);
+    assert.match(frontmatter, /^\s+reasoningEffort:/m);
+    const expected = expectedAllocation[file];
+    assert.ok(expected, `unexpected opencode agent file: ${file}`);
+    assert.match(frontmatter, new RegExp(`^model: ${escape(expected.model)}$`, 'm'), `model allocation mismatch: ${file}`);
+    assert.match(frontmatter, new RegExp(`^\\s+reasoningEffort: ${expected.effort}$`, 'm'), `reasoningEffort allocation mismatch: ${file}`);
+    assert.match(frontmatter, new RegExp(`^name: ${path.basename(file, '.md').replace(/\./g, '\\.')}$`, 'm'));
+    const basename = path.basename(file, '.md');
+    if (writerRoles.has(basename)) {
+      assert.doesNotMatch(frontmatter, /permission:/, `writer role should not be read-only: ${file}`);
+    } else {
+      assert.match(frontmatter, /permission:\s*edit:\s*deny/m, `read-only role missing permission.edit deny: ${file}`);
+    }
+  }
+});
+
+test('opencode sources do not leak other hosts placeholders or model ids', async () => {
+  const files = [
+    path.join(repository, 'opencode-global-config', 'AGENTS.md'),
+    path.join(repository, 'opencode-global-config', 'docs', 'README.md'),
+    path.join(repository, 'opencode-global-config', 'README.md'),
+    path.join(repository, 'opencode-global-config', 'skills', 'orchestrate-model-workflow', 'SKILL.md'),
+    path.join(repository, 'opencode-global-config', 'skills', 'agent-toolchain', 'SKILL.md'),
+    ...((await readdir(opencodeRolesDir)).filter((name) => name.endsWith('.md')).map((name) => path.join(opencodeRolesDir, name)))
+  ];
+  for (const file of files) {
+    const text = await readFile(file, 'utf8');
+    for (const forbidden of ['CODEX_HOME', 'ZCODE_HOME', 'gpt-5\\.6', 'glm_5\\.3', 'avsp_', 'sandbox_mode']) assert.doesNotMatch(text, new RegExp(forbidden), `host leakage in: ${file}`);
+  }
+});
+
+test('dsh workflow skill variant keeps the stages and references deepseek model tiers without host leakage', async () => {
+  const text = await readFile(path.join(repository, 'dsh-global-config', 'skills', 'orchestrate-model-workflow', 'SKILL.md'), 'utf8');
+  assert.match(text, /^---\r?\nname: orchestrate-model-workflow\r?\n/);
+  for (const stage of ['Explore', 'Plan', 'Work', 'Critique', 'Promote']) assert.match(text, new RegExp(`\\b${stage}\\b`));
+  for (const role of opencodeRoleNames) assert.match(text, new RegExp(`\\b${role.replace(/\./g, '\\.')}\\b`));
+  assert.match(text, /deepseek-v4-flash-0731/);
+  assert.match(text, /deepseek-v4-pro-0813/);
+  assert.match(text, /模型_版本_类型_思考档/);
+  assert.match(text, /默认并行优先/);
+  assert.match(text, /替代仅对本次派发生效，是临时且可重新评估的选择/);
+  assert.match(text, /不得把写入任务派给只读角色/);
+  assert.doesNotMatch(text, /subagent_type/);
+  for (const forbidden of ['CODEX_HOME', 'ZCODE_HOME', 'OPENCODE_HOME', 'gpt-5\\.6', 'glm_5\\.3', 'sandbox_mode', 'avsp_']) assert.doesNotMatch(text, new RegExp(forbidden));
+});
+
+test('dsh sources do not leak other hosts placeholders or model ids', async () => {
+  const files = [
+    path.join(repository, 'dsh-global-config', 'AGENTS.md'),
+    path.join(repository, 'dsh-global-config', 'docs', 'README.md'),
+    path.join(repository, 'dsh-global-config', 'README.md'),
+    path.join(repository, 'dsh-global-config', 'skills', 'orchestrate-model-workflow', 'SKILL.md')
+  ];
+  for (const file of files) {
+    const text = await readFile(file, 'utf8');
+    for (const forbidden of ['CODEX_HOME', 'ZCODE_HOME', 'OPENCODE_HOME', 'gpt-5\\.6', 'glm_5\\.3', 'avsp_']) assert.doesNotMatch(text, new RegExp(forbidden), `host leakage in: ${file}`);
+  }
+});
+
+test('merged installers statically register the opencode and dsh clients', async () => {
+  const sh = await readFile(posixInstaller, 'utf8');
+  for (const pattern of [
+    'client_label=opencode', 'home_env=OPENCODE_HOME', 'default_home=\\.config/opencode',
+    'placeholder=OPENCODE_HOME', 'role_kind=md_opencode', 'expected_roles=12',
+    'config_mode=opencode-json', 'roles_install=files', 'roles_dir_rel=agent',
+    'client_label=dsh', 'home_env=DSH_HOME', 'role_kind=none',
+    'config_mode=dsh-probe', 'roles_install=none', 'command -v dsh'
+  ]) assert.match(sh, new RegExp(pattern));
+  const ps = await readFile(powerInstaller, 'utf8');
+  for (const pattern of [
+    "RoleKind = 'mdopencode'", "ConfigMode = 'opencode-json'", "RolesInstall = 'files'", "RolesRel = 'agent'",
+    "RoleKind = 'none'", "ConfigMode = 'dsh-probe'", "RolesInstall = 'none'",
+    "Get-Command dsh"
+  ]) assert.match(ps, new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('POSIX opencode installer deploys a fresh home with staged agents and placeholder expansion', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.opencode-posix-contract-'));
+  const opencodeHome = path.join(root, '.config', 'opencode');
+  try {
+    const result = await runResult(shell, ['install.sh', 'opencode'], {
+      cwd: repository,
+      env: { ...process.env, OPENCODE_HOME: posixHome(opencodeHome) },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    const agents = await readFile(path.join(opencodeHome, 'AGENTS.md'), 'utf8');
+    assert.doesNotMatch(agents, /<OPENCODE_HOME>|\$OPENCODE_HOME/);
+    assert.notEqual(agents.indexOf(path.relative(repository, opencodeHome).split(path.sep).join('/')), -1);
+    const installedSkill = await readFile(path.join(opencodeHome, 'skills', 'orchestrate-model-workflow', 'SKILL.md'), 'utf8');
+    assert.match(installedSkill, /^---\nname: orchestrate-model-workflow\n/);
+    assert.doesNotMatch(installedSkill, /<OPENCODE_HOME>/);
+    const agentFiles = (await readdir(path.join(opencodeHome, 'agent'))).filter((name) => name.endsWith('.md'));
+    assert.equal(agentFiles.length, 12);
+    const systemDocs = await readdir(path.join(opencodeHome, 'docs', 'system'));
+    for (const expected of ['README.md', 'linux.md', 'macos.md', 'windows.md', 'rg.md', 'ssh.md', '跨系统操作示例.md']) {
+      assert.ok(systemDocs.includes(expected), `missing shared system doc: ${expected}`);
+    }
+    assert.match(await readFile(path.join(opencodeHome, 'opencode.json'), 'utf8'), /merge-ai\/deepseek-v4-flash/);
+    assert.equal(await readFile(path.join(opencodeHome, 'config.toml'), 'utf8').then(() => true, () => false), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX dsh installer deploys the workflow skill and probes settings.yaml read-only', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.dsh-posix-contract-'));
+  const fakeBin = path.join(root, 'bin');
+  const dshHome = path.join(root, '.dsh');
+  try {
+    await mkdir(fakeBin, { recursive: true });
+    await writeFile(path.join(fakeBin, 'dsh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    await mkdir(dshHome, { recursive: true });
+    const settings = 'providers:\n  qpt:\n    deepseek-v4-flash-0731: {}\n    deepseek-v4-pro-0813: {}\n';
+    await writeFile(path.join(dshHome, 'settings.yaml'), settings);
+    const result = await runResult(shell, ['install.sh', 'dsh'], {
+      cwd: repository,
+      env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`, DSH_HOME: posixHome(dshHome) },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout + '\n' + result.stderr, /分层可用/);
+    const installedSkill = await readFile(path.join(dshHome, 'skills', 'orchestrate-model-workflow', 'SKILL.md'), 'utf8');
+    assert.match(installedSkill, /^---\nname: orchestrate-model-workflow\n/);
+    assert.doesNotMatch(installedSkill, /<DSH_HOME>/);
+    const agents = await readFile(path.join(dshHome, 'AGENTS.md'), 'utf8');
+    assert.doesNotMatch(agents, /<DSH_HOME>|\$DSH_HOME/);
+    assert.equal(await readFile(path.join(dshHome, 'settings.yaml'), 'utf8'), settings);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX opencode installer coexists with user-owned agents in the shared agent directory', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.opencode-posix-owned-'));
+  const opencodeHome = path.join(root, '.config', 'opencode');
+  try {
+    await mkdir(path.join(opencodeHome, 'agent'), { recursive: true });
+    const owned = '---\ndescription: 用户自建 agent。\n---\n\nbody\n';
+    await writeFile(path.join(opencodeHome, 'agent', 'my_agent.md'), owned);
+    const result = await runResult(shell, ['install.sh', 'opencode'], {
+      cwd: repository,
+      env: { ...process.env, OPENCODE_HOME: posixHome(opencodeHome) },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    const agentFiles = (await readdir(path.join(opencodeHome, 'agent'))).filter((name) => name.endsWith('.md'));
+    assert.equal(agentFiles.length, 13);
+    assert.equal(await readFile(path.join(opencodeHome, 'agent', 'my_agent.md'), 'utf8'), owned);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX opencode installer preserves an existing opencode.json without overwriting', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.opencode-posix-json-'));
+  const opencodeHome = path.join(root, '.config', 'opencode');
+  try {
+    await mkdir(opencodeHome, { recursive: true });
+    await writeFile(path.join(opencodeHome, 'opencode.json'), '{"model": "custom-model"}\n');
+    const result = await runResult(shell, ['install.sh', 'opencode'], {
+      cwd: repository,
+      env: { ...process.env, OPENCODE_HOME: posixHome(opencodeHome) },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    assert.equal(await readFile(path.join(opencodeHome, 'opencode.json'), 'utf8'), '{"model": "custom-model"}\n');
+    assert.match(result.stdout + '\n' + result.stderr, /opencode\.json 已存在，安装器没有覆盖/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX dsh installer rejects installation when the dsh command is missing', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.dsh-posix-missing-'));
+  try {
+    const result = await runResult(shell, ['install.sh', 'dsh'], {
+      cwd: repository,
+      env: { ...process.env, PATH: '/usr/bin:/bin', DSH_HOME: posixHome(path.join(root, '.dsh')) },
+    });
+    assert.notEqual(result.code, 0, result.stdout);
+    assert.match(result.stdout + '\n' + result.stderr, /未找到 dsh 命令/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('POSIX all client deploys all four homes sequentially with per-client transactional state', async (t) => {
+  const shell = await findPosixShell();
+  if (!shell) return t.skip('POSIX shell is unavailable');
+  const root = await mkdtemp(path.join(repository, '.all-posix-contract-'));
+  const fakeBin = path.join(root, 'bin');
+  const codexHome = path.join(root, '.codex');
+  const zcodeHome = path.join(root, '.zcode');
+  const opencodeHome = path.join(root, '.config', 'opencode');
+  const dshHome = path.join(root, '.dsh');
+  try {
+    await mkdir(fakeBin, { recursive: true });
+    await writeFile(path.join(fakeBin, 'dsh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const result = await runResult(shell, ['install.sh', 'all'], {
+      cwd: repository,
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`,
+        CODEX_HOME: posixHome(codexHome),
+        ZCODE_HOME: posixHome(zcodeHome),
+        OPENCODE_HOME: posixHome(opencodeHome),
+        DSH_HOME: posixHome(dshHome),
+      },
+    });
+    assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout + '\n' + result.stderr, /四个客户端均已安装完成/);
+    assert.match(await readFile(path.join(codexHome, 'config.toml'), 'utf8'), /^model = "gpt-5\.6-terra"/m);
+    assert.equal((await readdir(path.join(zcodeHome, 'agents', 'ai-vibecode-superpower'))).filter((name) => name.endsWith('.md')).length, 5);
+    assert.equal((await readdir(path.join(opencodeHome, 'agent'))).filter((name) => name.endsWith('.md')).length, 12);
+    assert.match(await readFile(path.join(opencodeHome, 'opencode.json'), 'utf8'), /merge-ai\/deepseek-v4-flash/);
+    assert.ok((await readdir(path.join(dshHome, 'skills'))).includes('orchestrate-model-workflow'));
+    assert.equal(await readFile(path.join(codexHome, 'AGENTS.md'), 'utf8').then((text) => /<CODEX_HOME>/.test(text)), false);
+    assert.match(await readFile(path.join(opencodeHome, 'AGENTS.md'), 'utf8'), /系统文档与命令路由/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

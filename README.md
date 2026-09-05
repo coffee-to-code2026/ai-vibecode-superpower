@@ -1,8 +1,8 @@
 # ai-vibecode-superpower
 
-> 把 Codex 与 ZCode 从“单次对话工具”升级为一套面向复杂开发的工程协作系统：**更快推进、更强判断、更少浪费**。
+> 把 Codex、ZCode、opencode 与 DeepSeek Harness 从“单次对话工具”升级为一套面向复杂开发的工程协作系统：**更快推进、更强判断、更少浪费**。
 
-`ai-vibecode-superpower` 是可安装的 Codex / ZCode 配置包。它为复杂开发建立可追溯的取证、执行、验证与独立复查闭环；小任务仍然保持直接、轻量，不为工作流而工作流。两个宿主共享同一套平台文档和通用 skills；全局指令、agent 角色、工作流变体和安装行为的差异通过 `codex-global-config/` 与 `zcode-global-config/` 目录隔离。
+`ai-vibecode-superpower` 是可安装的 Codex / ZCode / opencode / DeepSeek Harness 配置包。它为复杂开发建立可追溯的取证、执行、验证与独立复查闭环；小任务仍然保持直接、轻量，不为工作流而工作流。四个宿主共享同一套平台文档和通用 skills；全局指令、agent 角色、工作流变体和安装行为的差异通过 `codex-global-config/`、`zcode-global-config/`、`opencode-global-config/` 与 `dsh-global-config/` 目录隔离。
 
 ## 你真正得到的提升
 
@@ -68,7 +68,7 @@ flowchart LR
 
 ## 快速安装
 
-每个平台一个安装器：`install.ps1`（Windows）与 `install.sh`（macOS/Linux）。直接运行后按提示交互选择客户端（Codex / ZCode），或在命令中直接指定客户端跳过交互；共享内容由所选客户端的安装流程一并安装，宿主专属内容各装各的。新增客户端时在两个安装器的客户端注册表中加入一项即可。
+每个平台一个安装器：`install.ps1`（Windows）与 `install.sh`（macOS/Linux）。直接运行后按提示交互选择客户端（Codex / ZCode / opencode / DSH / All），或在命令中直接指定客户端跳过交互；共享内容由所选客户端的安装流程一并安装，宿主专属内容各装各的。一次装全部客户端可指定 `all`（`sh ./install.sh all` 或 `.\install.ps1 -Client all`），按注册表顺序逐个事务安装，任一失败即停止。新增客户端时在两个安装器的客户端注册表中加入一项即可。
 
 ### Codex
 
@@ -128,6 +128,30 @@ goals = true
 sh ./install.sh zcode
 ```
 
+### opencode
+
+opencode 适配以 deepseek 为目标模型：12 个角色按同一公式 `模型_版本_类型_思考档` 命名为 `deepseek_v4_*`，映射为安装到 `~/.config/opencode/agent/` 的 subagent；分发全局行为规范（含 `<OPENCODE_HOME>/docs` 系统文档路由）、两个 skill（`orchestrate-model-workflow` 与 `agent-toolchain`，后者 `configure --config opencode` 写项目 `opencode.json` 的 `mcp.codegraph`）和默认 `opencode.json`。安装器管理 `AGENTS.md`、`docs/`、`agent/` 与受管 skills；已有的 `opencode.json` 不会覆盖，需按提示手动合并 `model` 字段。
+
+**macOS 或 Linux**：
+
+```sh
+sh ./install.sh opencode
+```
+
+> 参考实现（独立安装脚本）安装的旧版 `avsp-*` 角色与本版新命名不同；升级前请先手动清理旧版受管文件。
+
+### DSH
+
+DeepSeek Harness 适配分发全局行为规范与 `orchestrate-model-workflow`（dsh 变体），角色分层用 `$DSH_HOME/settings.yaml`（默认 `~/.dsh`，参考 `qpt` provider）的 `deepseek-v4-flash-0731` / `deepseek-v4-pro-0813` 两个模型档表达；dsh 没有角色文件机制，`agent-toolchain` 因无项目级 MCP 落点而不分发。安装器只探测并提示 `settings.yaml` 是否已声明两个模型档，不写入或覆盖。
+
+**macOS 或 Linux**：
+
+```sh
+sh ./install.sh dsh
+```
+
+安装前需已安装 `@deepseek-ai/dsh` 并运行过一次 `dsh web`；安装成功后重启 dsh web。
+
 ## 使用方式与可选能力
 
 安装并重启后，直接在目标项目描述目标、范围和限制即可。复杂任务会根据实际需要进入协作闭环；不需要时保持轻量。
@@ -139,14 +163,14 @@ sh ./install.sh zcode
 | [`project-doc-planner`](shared/skills/project-doc-planner/SKILL.md) | 新项目或大型改造的文档规划 | 可维护的项目级文档结构。 |
 | [`gpt-image-2-cli`](codex-global-config/skills/gpt-image-2-cli/SKILL.md) | 需要生成或编辑图片素材 | 通过命令行调用图像生成能力。 |
 
-`orchestrate-model-workflow` 是双变体 skill：Codex 版与 ZCode 版按宿主机制差异分离维护，ZCode 版见 [`zcode-global-config/skills/orchestrate-model-workflow/SKILL.md`](zcode-global-config/skills/orchestrate-model-workflow/SKILL.md)。
+`orchestrate-model-workflow` 是四变体 skill：Codex 版、ZCode 版、opencode 版与 dsh 版按宿主机制差异分离维护（[Codex](codex-global-config/skills/orchestrate-model-workflow/SKILL.md) / [ZCode](zcode-global-config/skills/orchestrate-model-workflow/SKILL.md) / [opencode](opencode-global-config/skills/orchestrate-model-workflow/SKILL.md) / [DSH](dsh-global-config/skills/orchestrate-model-workflow/SKILL.md)）。
 
 例如：“使用 `$agent-toolchain` 给这个项目接入工具链”，或“使用 `$orchestrate-model-workflow` 组织这个复杂任务”。工具链接入完成后，普通开发不需要再次触发 `$agent-toolchain`。
 
 ## 进一步阅读
 
-- [`orchestrate-model-workflow`（Codex 版）](codex-global-config/skills/orchestrate-model-workflow/SKILL.md) / [（ZCode 版）](zcode-global-config/skills/orchestrate-model-workflow/SKILL.md)：工作流路由、交接与验收规范。
-- [agent role profiles（Codex）](codex-global-config/agents/ai-vibecode-superpower/) / [（ZCode）](zcode-global-config/agents/ai-vibecode-superpower/)：role 的本地权限与输出边界。
-- [统一安装器：Windows](install.ps1) / [macOS/Linux](install.sh)（交互选择或指定 `codex` / `zcode` 客户端）。
+- [`orchestrate-model-workflow`（Codex 版）](codex-global-config/skills/orchestrate-model-workflow/SKILL.md) / [（ZCode 版）](zcode-global-config/skills/orchestrate-model-workflow/SKILL.md) / [（opencode 版）](opencode-global-config/skills/orchestrate-model-workflow/SKILL.md) / [（dsh 版）](dsh-global-config/skills/orchestrate-model-workflow/SKILL.md)：工作流路由、交接与验收规范。
+- [agent role profiles（Codex）](codex-global-config/agents/ai-vibecode-superpower/) / [（ZCode）](zcode-global-config/agents/ai-vibecode-superpower/) / [（opencode）](opencode-global-config/agents/ai-vibecode-superpower/)：role 的本地权限与输出边界。
+- [统一安装器：Windows](install.ps1) / [macOS/Linux](install.sh)（交互选择或指定 `codex` / `zcode` / `opencode` / `dsh` 客户端）。
 
 问题或建议：QQ群 `1105515344`

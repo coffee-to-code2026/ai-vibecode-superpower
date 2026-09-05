@@ -95,30 +95,44 @@ normalize_absolute_path() {
 client=${1:-}
 if [ -z "$client" ]; then
     if [ -t 0 ]; then
-        printf '%s\n' 'Select the client to install:' '  1) Codex' '  2) ZCode'
+        printf '%s\n' 'Select the client to install:' '  1) Codex' '  2) ZCode' '  3) opencode' '  4) DSH' '  5) All'
         printf 'Enter number or name (q to quit): '
         read -r client_choice
         case "$client_choice" in
             1|[cC]odex) client=codex ;;
             2|[zZ][cC]ode) client=zcode ;;
+            3|[oO]pencode) client=opencode ;;
+            4|[dD][sS][hH]) client=dsh ;;
+            5|[aA][lL][lL]) client=all ;;
             [qQ]) exit 0 ;;
             *) die "Invalid selection: $client_choice" ;;
         esac
     else
-        die 'No client specified. Usage: sh install.sh <codex|zcode>'
+        die 'No client specified. Usage: sh install.sh <codex|zcode|opencode|dsh|all>'
     fi
 fi
 case "$client" in
     [cC]odex) client=codex ;;
     [zZ][cC]ode) client=zcode ;;
-    *) die "Unknown client: $client (supported: codex|zcode)" ;;
+    [oO]pencode) client=opencode ;;
+    [dD][sS][hH]) client=dsh ;;
+    [aA][lL][lL]) client=all ;;
+    *) die "Unknown client: $client (supported: codex|zcode|opencode|dsh|all)" ;;
 esac
+
+if [ "$client" = all ]; then
+    for all_client in codex zcode opencode dsh; do
+        printf '\n=== 安装 %s ===\n' "$all_client"
+        sh "$0" "$all_client" || { printf '客户端 %s 安装失败；后续客户端未继续。\n' "$all_client" >&2; exit 1; }
+    done
+    printf '\n四个客户端均已安装完成。\n'
+    exit 0
+fi
 
 # ---- 按客户端装配来源 ----
 
 source_system_docs=$script_dir/shared/docs/system
 shared_skills=$script_dir/shared/skills
-has_config=0
 case "$client" in
     codex)
         client_label=Codex
@@ -135,7 +149,9 @@ case "$client" in
         source_model_provider_settings=$script_dir/codex-global-config/model-provider-settings.toml
         client_skills=$script_dir/codex-global-config/skills
         skill_specs='agent-toolchain:shared gpt-image-2-cli:codex project-doc-planner:shared orchestrate-model-workflow:codex'
-        has_config=1
+        config_mode=toml
+        roles_install=directory
+        roles_dir_rel=agents/ai-vibecode-superpower
         ;;
     zcode)
         client_label=ZCode
@@ -150,20 +166,65 @@ case "$client" in
         source_docs=$script_dir/zcode-global-config/docs
         client_skills=$script_dir/zcode-global-config/skills
         skill_specs='agent-toolchain:shared project-doc-planner:shared orchestrate-model-workflow:zcode'
+        config_mode=none
+        roles_install=directory
+        roles_dir_rel=agents/ai-vibecode-superpower
+        ;;
+    opencode)
+        client_label=opencode
+        home_env=OPENCODE_HOME
+        default_home=.config/opencode
+        role_kind=md_opencode
+        expected_roles=12
+        placeholder=OPENCODE_HOME
+        source_roles=$script_dir/opencode-global-config/agents/ai-vibecode-superpower
+        source_manifest=$script_dir/opencode-global-config/agents/ai-vibecode-superpower.sha256
+        source_instructions=$script_dir/opencode-global-config/AGENTS.md
+        source_docs=$script_dir/opencode-global-config/docs
+        client_skills=$script_dir/opencode-global-config/skills
+        skill_specs='agent-toolchain:opencode orchestrate-model-workflow:opencode project-doc-planner:shared'
+        config_mode=opencode-json
+        config_source=$script_dir/opencode-global-config/opencode.json
+        roles_install=files
+        roles_dir_rel=agent
+        ;;
+    dsh)
+        client_label=dsh
+        home_env=DSH_HOME
+        default_home=.dsh
+        role_kind=none
+        expected_roles=0
+        placeholder=DSH_HOME
+        source_roles=
+        source_manifest=
+        source_instructions=$script_dir/dsh-global-config/AGENTS.md
+        source_docs=$script_dir/dsh-global-config/docs
+        client_skills=$script_dir/dsh-global-config/skills
+        skill_specs='orchestrate-model-workflow:dsh'
+        config_mode=dsh-probe
+        roles_install=none
+        roles_dir_rel=
         ;;
 esac
+if [ "$config_mode" = dsh-probe ]; then
+    command -v dsh >/dev/null 2>&1 || die '未找到 dsh 命令；请先安装 @deepseek-ai/dsh 并运行一次 dsh web，再重新运行本脚本。'
+fi
 
 skill_source_dir() {
     case "${1##*:}" in
         shared) printf '%s\n' "$shared_skills/${1%%:*}" ;;
-        codex) printf '%s\n' "$client_skills/${1%%:*}" ;;
-        zcode) printf '%s\n' "$client_skills/${1%%:*}" ;;
+        codex|zcode|opencode|dsh) printf '%s\n' "$client_skills/${1%%:*}" ;;
         *) return 1 ;;
     esac
 }
 
-required_sources="$source_roles $source_manifest $source_docs $source_system_docs $source_instructions $shared_skills $client_skills"
-[ "$has_config" -eq 1 ] && required_sources="$required_sources $source_config $source_model_provider_settings"
+required_sources="$source_docs $source_system_docs $source_instructions $shared_skills $client_skills"
+[ -n "$source_roles" ] && [ -n "$source_manifest" ] && required_sources="$required_sources $source_roles $source_manifest"
+if [ "$config_mode" = toml ]; then
+    required_sources="$required_sources $source_config $source_model_provider_settings"
+elif [ "$config_mode" = opencode-json ]; then
+    required_sources="$required_sources $config_source"
+fi
 for source_path in $required_sources; do
     [ -e "$source_path" ] || die "Missing source: $source_path"
 done
@@ -230,19 +291,31 @@ assert_roles_toml() {
 assert_agents_md() {
     agents_dir=${1:-$source_roles}
     manifest_path=${2:-$source_manifest}
+    variant=${3:-md}
+    strict=${4:-1}
+    required_fields=$(if [ "$variant" = opencode ]; then printf '%s' 'name description mode model'; else printf '%s' 'name description model thoughtLevel'; fi)
     manifest_count=$(wc -l < "$manifest_path")
     [ "$manifest_count" -eq "$expected_roles" ] || die "Expected $expected_roles managed agent hashes"
+    while IFS=' ' read -r manifest_sha manifest_name; do
+        [ ${#manifest_sha} -eq 64 ] || die "Invalid manifest entry: $manifest_name"
+        if [ "$strict" -eq 0 ]; then
+            [ -f "$agents_dir/$manifest_name" ] || die "Missing managed agent: $manifest_name"
+        fi
+    done < "$manifest_path"
     for agent_path in "$agents_dir"/*.md; do
-        [ -f "$agent_path" ] || die "Missing managed agent: $agent_path"
+        [ -e "$agent_path" ] || continue
         agent_name=$(basename "$agent_path")
+        if [ -z "$(manifest_hash "$agent_name" "$manifest_path" 2>/dev/null || true)" ]; then
+            if [ "$strict" -eq 1 ]; then die "Unexpected managed agent: $agent_name"; else continue; fi
+        fi
         expected_hash=$(manifest_hash "$agent_name" "$manifest_path") || die "Missing agent hash: $agent_name"
         actual_hash=$(normalized_lf_sha256 "$agent_path")
         [ "$expected_hash" = "$actual_hash" ] || die "Agent hash mismatch: $agent_name"
-        awk -v agent="${agent_name%.md}" '
+        awk -v agent="${agent_name%.md}" -v variant="$variant" -v required_fields="$required_fields" '
             { sub(/\r$/, "") }
             NR == 1 { if ($0 != "---") { err = "frontmatter missing"; exit 1 } in_fm = 1; next }
             in_fm && $0 == "---" { terminated = 1; exit 0 }
-            in_fm && /^(name|description|model|thoughtLevel)[[:space:]]*:/ {
+            in_fm && /^(name|description|model|thoughtLevel|mode)[[:space:]]*:/ {
                 key = $0
                 sub(/[[:space:]]*:.*$/, "", key)
                 seen[key]++
@@ -253,13 +326,19 @@ assert_agents_md() {
                     fm_name = value
                 }
             }
+            in_fm && variant == "opencode" && /^options:[[:space:]]*$/ { options_seen = 1; next }
+            in_fm && variant == "opencode" && /^[[:space:]]+reasoningEffort:[[:space:]]*/ { effort_seen = 1; next }
             END {
                 bad = 0
                 if (err != "") { printf "Agent %s: %s\n", agent, err > "/dev/stderr"; bad = 1 }
                 else if (!terminated) { printf "Agent %s: frontmatter unterminated\n", agent > "/dev/stderr"; bad = 1 }
                 else {
-                    split("name description model thoughtLevel", required, " ")
-                    for (i = 1; i <= 4; i++) if (seen[required[i]] != 1) { printf "Agent %s: field missing or repeated: %s\n", agent, required[i] > "/dev/stderr"; bad = 1 }
+                    required_count = split(required_fields, required, " ")
+                    for (i = 1; i <= required_count; i++) if (seen[required[i]] != 1) { printf "Agent %s: field missing or repeated: %s\n", agent, required[i] > "/dev/stderr"; bad = 1 }
+                    if (variant == "opencode") {
+                        if (!options_seen) { printf "Agent %s: options block missing\n", agent > "/dev/stderr"; bad = 1 }
+                        if (!effort_seen) { printf "Agent %s: options.reasoningEffort missing\n", agent > "/dev/stderr"; bad = 1 }
+                    }
                     if (fm_name != agent) { printf "Agent %s: frontmatter name mismatch: %s\n", agent, fm_name > "/dev/stderr"; bad = 1 }
                 }
                 exit bad ? 1 : 0
@@ -269,10 +348,37 @@ assert_agents_md() {
 }
 
 assert_managed_roles() {
-    if [ "$role_kind" = toml ]; then
-        assert_roles_toml "$@"
+    case "$role_kind" in
+        toml)
+            if [ $# -ge 1 ]; then assert_roles_toml "$@"; else assert_roles_toml; fi
+            ;;
+        md)
+            roles_dir=${1:-$source_roles}; roles_manifest=${2:-$source_manifest}; role_strict=${3:-1}
+            assert_agents_md "$roles_dir" "$roles_manifest" md "$role_strict"
+            ;;
+        md_opencode)
+            roles_dir=${1:-$source_roles}; roles_manifest=${2:-$source_manifest}; role_strict=${3:-1}
+            assert_agents_md "$roles_dir" "$roles_manifest" opencode "$role_strict"
+            ;;
+        none) : ;;
+        *) die "Unknown role kind: $role_kind" ;;
+    esac
+}
+
+dsh_probe_settings() {
+    settings_path=$client_home/settings.yaml
+    printf '%s\n' '检查模型分层配置 ...'
+    if [ -f "$settings_path" ]; then
+        flash_ok=$(grep -c 'deepseek-v4-flash-0731' "$settings_path" 2>/dev/null || true)
+        pro_ok=$(grep -c 'deepseek-v4-pro-0813' "$settings_path" 2>/dev/null || true)
+        if [ "${flash_ok:-0}" != "0" ] && [ "${pro_ok:-0}" != "0" ]; then
+            printf '%s\n' '已检测到 flash 与 pro 两个模型档，分层可用。'
+        else
+            printf '%s\n' '注意：settings.yaml 未同时包含 deepseek-v4-flash-0731 与 deepseek-v4-pro-0813。'
+            printf '%s\n' 'orchestrate-model-workflow 的 Luna(flash)/Terra+Sol(pro) 分层需要这两个模型档，请按需补充。'
+        fi
     else
-        assert_agents_md "$@"
+        printf '未找到 %s。模型分层请按需在 DSH 配置中声明两个模型档。\n' "$settings_path"
     fi
 }
 
@@ -442,19 +548,32 @@ merge_managed_config() {
 
 for target_spec in \
     "$client_home/AGENTS.md file" \
-    "$client_home/docs directory" \
-    "$client_home/agents/ai-vibecode-superpower directory"; do
+    "$client_home/docs directory"; do
     target_path=${target_spec% *}
     target_kind=${target_spec##* }
     assert_target "$target_path" "$target_kind" || die "Unsafe install target: $target_path"
 done
-if [ "$has_config" -eq 1 ]; then
+if [ "$config_mode" = toml ]; then
     assert_target "$client_home/config.toml" file || die "Unsafe install target: $client_home/config.toml"
+fi
+if [ "$config_mode" = opencode-json ] && ! path_exists "$client_home/opencode.json"; then
+    assert_target "$client_home/opencode.json" file || die "Unsafe install target: $client_home/opencode.json"
+fi
+if [ "$roles_install" = directory ]; then
+    assert_target "$client_home/$roles_dir_rel" directory || die "Unsafe install target: $client_home/$roles_dir_rel"
+elif [ "$roles_install" = files ]; then
+    for role_path in "$source_roles"/*.md; do
+        [ -f "$role_path" ] || die "Missing managed agent: $role_path"
+        assert_target "$client_home/$roles_dir_rel/$(basename "$role_path")" file || die "Unsafe install target: $client_home/$roles_dir_rel/$(basename "$role_path")"
+    done
 fi
 for skill_spec in $skill_specs; do
     assert_target "$client_home/skills/${skill_spec%%:*}" directory || die "Unsafe install target: $client_home/skills/${skill_spec%%:*}"
 done
-for container_path in "$client_home/agents" "$client_home/skills" "$client_home/backups"; do
+containers="$client_home/skills $client_home/backups"
+if [ "$roles_install" = directory ]; then containers="$containers $client_home/agents"; fi
+if [ "$roles_install" = files ]; then containers="$containers $client_home/agent"; fi
+for container_path in $containers; do
     assert_directory_container "$container_path" || die "Unsafe managed container: $container_path"
 done
 assert_managed_roles
@@ -521,13 +640,17 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p -- "$stage_dir/state/backed-up" "$stage_dir/state/install-started" "$stage_dir/agents" "$stage_dir/skills"
+mkdir -p -- "$stage_dir/state/backed-up" "$stage_dir/state/install-started" "$stage_dir/skills"
+if [ "$roles_install" != none ]; then mkdir -p -- "$stage_dir/agents/ai-vibecode-superpower"; fi
 cp "$source_instructions" "$stage_dir/AGENTS.md"
 cp -R "$source_docs" "$stage_dir/docs"
 cp -R "$source_system_docs" "$stage_dir/docs/system"
-cp -R "$source_roles" "$stage_dir/agents/"
+case "$roles_install" in
+    directory) cp -R "$source_roles" "$stage_dir/agents/" ;;
+    files) cp "$source_roles"/*.md "$stage_dir/agents/ai-vibecode-superpower/" ;;
+esac
 for skill_spec in $skill_specs; do cp -R "$(skill_source_dir "$skill_spec")" "$stage_dir/skills/"; done
-if [ "$has_config" -eq 1 ]; then
+if [ "$config_mode" = toml ]; then
     config_input=$source_config
     if path_exists "$client_home/config.toml"; then cp "$client_home/config.toml" "$stage_dir/existing-config.toml"; config_input=$stage_dir/existing-config.toml; fi
     : > "$stage_dir/merged-config.toml"
@@ -538,7 +661,10 @@ if [ "$has_config" -eq 1 ]; then
     mv "$stage_dir/merged-config.toml" "$stage_dir/config.toml"
     assert_safe_toml_merge_input "$stage_dir/config.toml"
 fi
-assert_managed_roles "$stage_dir/agents/ai-vibecode-superpower" "$source_manifest"
+if [ "$config_mode" = opencode-json ] && ! path_exists "$client_home/opencode.json"; then
+    cp "$config_source" "$stage_dir/opencode.json"
+fi
+if [ "$roles_install" != none ]; then assert_managed_roles "$stage_dir/agents/ai-vibecode-superpower" "$source_manifest"; fi
 escaped_home=$(printf '%s' "$client_home" | sed 's/[\\&|]/\\&/g')
 file_list=$stage_dir/files.list
 find "$stage_dir" -type f \( -name '*.md' -o -name '*.toml' -o -name '*.txt' \) -print > "$file_list" || die 'Could not enumerate staged text files.'
@@ -551,10 +677,23 @@ done < "$file_list"
 rm -f "$file_list"
 
 manifest=$stage_dir/targets.tsv
+opencode_json_preexisting=0
+[ "$config_mode" = opencode-json ] && path_exists "$client_home/opencode.json" && opencode_json_preexisting=1
 printf 'AGENTS.md\t%s\t%s\tfile\treplace\n' "$client_home/AGENTS.md" "$stage_dir/AGENTS.md" > "$manifest"
-[ "$has_config" -eq 1 ] && printf 'config.toml\t%s\t%s\tfile\treplace\n' "$client_home/config.toml" "$stage_dir/config.toml" >> "$manifest"
+if [ "$config_mode" = toml ]; then
+    printf 'config.toml\t%s\t%s\tfile\treplace\n' "$client_home/config.toml" "$stage_dir/config.toml" >> "$manifest"
+elif [ "$config_mode" = opencode-json ] && ! path_exists "$client_home/opencode.json"; then
+    printf 'opencode.json\t%s\t%s\tfile\treplace\n' "$client_home/opencode.json" "$stage_dir/opencode.json" >> "$manifest"
+fi
 printf 'docs\t%s\t%s\tdirectory\treplace\n' "$client_home/docs" "$stage_dir/docs" >> "$manifest"
-printf 'agents/ai-vibecode-superpower\t%s\t%s\tdirectory\treplace\n' "$client_home/agents/ai-vibecode-superpower" "$stage_dir/agents/ai-vibecode-superpower" >> "$manifest"
+if [ "$roles_install" = directory ]; then
+    printf '%s\t%s\t%s\tdirectory\treplace\n' "$roles_dir_rel" "$client_home/$roles_dir_rel" "$stage_dir/agents/ai-vibecode-superpower" >> "$manifest"
+elif [ "$roles_install" = files ]; then
+    for role_path in "$source_roles"/*.md; do
+        role_name=$(basename "$role_path")
+        printf 'agent/%s\t%s\t%s\tfile\treplace\n' "$role_name" "$client_home/agent/$role_name" "$stage_dir/agents/ai-vibecode-superpower/$role_name" >> "$manifest"
+    done
+fi
 for skill_spec in $skill_specs; do printf 'skills/%s\t%s\t%s\tdirectory\treplace\n' "${skill_spec%%:*}" "$client_home/skills/${skill_spec%%:*}" "$stage_dir/skills/${skill_spec%%:*}" >> "$manifest"; done
 has_existing_target=0
 while IFS="$(printf '\t')" read -r target_name target_path candidate_path target_kind target_operation; do
@@ -582,8 +721,26 @@ while IFS="$(printf '\t')" read -r target_name target_path candidate_path target
         mv -- "$candidate_path" "$target_path"
     fi
 done < "$manifest"
-assert_managed_roles "$client_home/agents/ai-vibecode-superpower" "$source_manifest"
+role_strict=1
+[ "$roles_install" = files ] && role_strict=0
+if [ "$roles_install" != none ]; then assert_managed_roles "$client_home/$roles_dir_rel" "$source_manifest" "$role_strict"; fi
 completed=1
-printf '%s\n' "$client_label configuration installed in: $client_home" 'Standalone skills and managed agent roles installed.'
-if [ "$client" = zcode ]; then printf '%s\n' 'Unmanaged ZCode state (cli/, v2/, plugins, other skills and agents) was not modified.'; fi
+printf '%s\n' "$client_label configuration installed in: $client_home"
+if [ "$roles_install" = none ]; then
+    printf '%s\n' 'Standalone skills installed.'
+else
+    printf '%s\n' 'Standalone skills and managed agent roles installed.'
+fi
+case "$client" in
+    zcode) printf '%s\n' 'Unmanaged ZCode state (cli/, v2/, plugins, other skills and agents) was not modified.' ;;
+    opencode)
+        if [ "$opencode_json_preexisting" -eq 1 ]; then
+            printf '%s\n' 'opencode.json 已存在，安装器没有覆盖。如需启用默认模型，请手动合并 model 字段：' '  "model": "merge-ai/deepseek-v4-flash",'
+        fi
+        printf '%s\n' 'Unmanaged opencode state (unrelated agents/skills) was not modified.' ;;
+    dsh)
+        printf '%s\n' 'Unmanaged DSH state (settings.yaml, cli/, plugins and other skills) was not modified.'
+        dsh_probe_settings
+        ;;
+esac
 if [ -n "$backup_dir" ]; then printf '%s\n' "Backup directory: $backup_dir"; fi
