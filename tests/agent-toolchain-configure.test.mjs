@@ -46,12 +46,16 @@ test('configure wires both clients and stays idempotent (PowerShell)', { skip: p
     const zcodeConfig = await readFile(path.join(project, '.zcode', 'config.json'), 'utf8');
     assertCodegraphJson(zcodeConfig);
     assert.match(await readFile(path.join(project, 'AGENTS.md'), 'utf8'), /^## CodeGraph 与 RTK$/m);
-    assert.match(await readFile(path.join(project, '.gitignore'), 'utf8'), /^\/\.codegraph\/$/m);
+    const gitignore = await readFile(path.join(project, '.gitignore'), 'utf8');
+    assert.match(gitignore, /^\/\.codegraph\/$/m);
+    assert.match(gitignore, /^\/\.codex\/$/m);
+    assert.match(gitignore, /^\/\.zcode\/$/m);
 
     result = await runResult('pwsh.exe', ['-NoLogo', '-NoProfile', '-File', powerShellDriver, 'configure', '--project', project]);
     assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
     assert.equal(await readFile(path.join(project, '.zcode', 'config.json'), 'utf8'), zcodeConfig, 'idempotent run rewrote .zcode/config.json');
     assert.equal(await readFile(path.join(project, '.codex', 'config.toml'), 'utf8'), codexConfig, 'idempotent run rewrote .codex/config.toml');
+    assert.equal(await readFile(path.join(project, '.gitignore'), 'utf8'), gitignore, 'idempotent run rewrote .gitignore');
 
     const tampered = JSON.parse(zcodeConfig);
     tampered.mcp.servers.codegraph.command = 'other';
@@ -79,6 +83,10 @@ test('configure merges into an existing zcode config without dropping keys (Powe
     const entries = await readdir(path.join(project, '.zcode'));
     assert.ok(entries.includes('config.json'));
     assert.equal(entries.includes('config.toml'), false, '.zcode must not receive a codex config');
+    const gitignore = await readFile(path.join(project, '.gitignore'), 'utf8');
+    assert.match(gitignore, /^\/\.codegraph\/$/m);
+    assert.match(gitignore, /^\/\.zcode\/$/m);
+    assert.doesNotMatch(gitignore, /^\/\.codex\/$/m);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -130,6 +138,10 @@ test('configure wires both clients (POSIX)', { skip: process.platform === 'win32
     assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(await readFile(path.join(project, '.codex', 'config.toml'), 'utf8'), /^\[mcp_servers\.codegraph\]$/m);
     assertCodegraphJson(await readFile(path.join(project, '.zcode', 'config.json'), 'utf8'));
+    const gitignore = await readFile(path.join(project, '.gitignore'), 'utf8');
+    assert.match(gitignore, /^\/\.codegraph\/$/m);
+    assert.match(gitignore, /^\/\.codex\/$/m);
+    assert.match(gitignore, /^\/\.zcode\/$/m);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

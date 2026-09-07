@@ -230,7 +230,8 @@ function Configure-Project {
   Assert-PlainFileOrAbsent $agentsPath
   Assert-PlainFileOrAbsent $ignorePath
 
-  $needsCodexConfig = $false; $needsZcodeConfig = $false; $needsAgents = $false; $needsIgnore = $false
+  $needsCodexConfig = $false; $needsZcodeConfig = $false; $needsAgents = $false
+  $needsIgnoreCodegraph = $false; $needsIgnoreCodex = $false; $needsIgnoreZcode = $false
   $agentsHeading = '## CodeGraph 与 RTK'
   $agentsBlock = @(
     '## CodeGraph 与 RTK'
@@ -297,7 +298,9 @@ function Configure-Project {
   }
 
   $ignoreText = if (Test-Path -LiteralPath $ignorePath) { Get-Content -LiteralPath $ignorePath -Raw } else { '' }
-  if ($ignoreText -notmatch '(?m)^/\.codegraph/\s*$') { $needsIgnore = $true }
+  if ($ignoreText -notmatch '(?m)^/\.codegraph/\s*$') { $needsIgnoreCodegraph = $true }
+  if ($wireCodex -and $ignoreText -notmatch '(?m)^/\.codex/\s*$') { $needsIgnoreCodex = $true }
+  if ($wireZcode -and $ignoreText -notmatch '(?m)^/\.zcode/\s*$') { $needsIgnoreZcode = $true }
 
   if ($wireCodex) {
     if (-not (Test-Path -LiteralPath $codexDirectory)) { New-Item -ItemType Directory -Path $codexDirectory | Out-Null }
@@ -326,7 +329,11 @@ DO_NOT_TRACK = "1"
   if ($needsAgents) {
     Append-ProjectText $agentsPath $agentsBlock
   }
-  if ($needsIgnore) { Append-ProjectText $ignorePath '/.codegraph/' }
+  $ignoreWrite = @()
+  if ($needsIgnoreCodegraph) { $ignoreWrite += '/.codegraph/' }
+  if ($needsIgnoreCodex) { $ignoreWrite += '/.codex/' }
+  if ($needsIgnoreZcode) { $ignoreWrite += '/.zcode/' }
+  if ($ignoreWrite.Count -gt 0) { Append-ProjectText $ignorePath ($ignoreWrite -join "`n") }
   Note '项目 CodeGraph 与 RTK 受管配置已就绪'
 }
 

@@ -284,7 +284,9 @@ configure_project() {
   codex_config_needs_write=0
   zcode_config_needs_write=0
   agents_needs_write=0
-  ignore_needs_write=0
+  ignore_needs_codegraph=0
+  ignore_needs_codex=0
+  ignore_needs_zcode=0
   agents_heading='## CodeGraph 与 RTK'
   agents_block='## CodeGraph 与 RTK
 
@@ -377,8 +379,18 @@ PYEOF
   else
     agents_needs_write=1
   fi
-  if [ ! -f "$ignore" ] || ! rg -Fxq '/.codegraph/' "$ignore"; then
-    ignore_needs_write=1
+  if [ ! -f "$ignore" ] || ! rg -q '^/\.codegraph/\r?$' "$ignore"; then
+    ignore_needs_codegraph=1
+  fi
+  if [ "$wire_codex" -eq 1 ]; then
+    if [ ! -f "$ignore" ] || ! rg -q '^/\.codex/\r?$' "$ignore"; then
+      ignore_needs_codex=1
+    fi
+  fi
+  if [ "$wire_zcode" -eq 1 ]; then
+    if [ ! -f "$ignore" ] || ! rg -q '^/\.zcode/\r?$' "$ignore"; then
+      ignore_needs_zcode=1
+    fi
   fi
 
   if [ "$wire_codex" -eq 1 ]; then
@@ -417,7 +429,27 @@ DO_NOT_TRACK = "1"'
     fi
   fi
   [ "$agents_needs_write" -eq 0 ] || append_project_text "$agents" "$agents_block"
-  [ "$ignore_needs_write" -eq 0 ] || append_project_text "$ignore" '/.codegraph/'
+  ignore_write=''
+  if [ "$ignore_needs_codegraph" -eq 1 ]; then
+    ignore_write='/.codegraph/'
+  fi
+  if [ "$ignore_needs_codex" -eq 1 ]; then
+    if [ -n "$ignore_write" ]; then
+      ignore_write="$ignore_write
+/.codex/"
+    else
+      ignore_write='/.codex/'
+    fi
+  fi
+  if [ "$ignore_needs_zcode" -eq 1 ]; then
+    if [ -n "$ignore_write" ]; then
+      ignore_write="$ignore_write
+/.zcode/"
+    else
+      ignore_write='/.zcode/'
+    fi
+  fi
+  [ -z "$ignore_write" ] || append_project_text "$ignore" "$ignore_write"
   note "项目 CodeGraph 与 RTK 受管配置已就绪"
 }
 
