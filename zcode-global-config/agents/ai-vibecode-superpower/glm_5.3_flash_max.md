@@ -1,7 +1,7 @@
 ---
 name: glm_5.3_flash_max
 description: "写代码主力：受控契约执行、受保护写入、共享状态处理与集成。"
-model: deepseek-v4-flash-0731
+model: glm-5.3-flash
 thoughtLevel: max
 color: green
 ---

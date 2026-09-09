@@ -1,7 +1,7 @@
 ---
 name: glm_5.3_max
 description: "只读最高强度独立复审与最终升级验收（终审）。"
-model: deepseek-v4-flash-0731
+model: glm-5.3-flash
 thoughtLevel: max
 color: orange
 tools: [Read, Bash, WebFetch, WebSearch, TodoWrite]

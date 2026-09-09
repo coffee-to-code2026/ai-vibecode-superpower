@@ -113,7 +113,7 @@ goals = true
 ### ZCode
 
 - 安装前退出 ZCode 会话；安装成功后重启 ZCode，使 `~/.zcode/agents` 的角色和 `~/.zcode/skills` 生效。
-- ZCode 变体包含 5 个角色，按统一公式 `模型_版本_类型_思考档` 命名：`glm_5.3_flash_low`（常规取证）、`glm_5.3_flash_high`（深度取证）、`glm_5.3_flash_max`（写代码主力）、`glm_5.3_high`（审核主力）、`glm_5.3_max`（终审）；模型统一使用 ZCode 主用模型 `deepseek-v4-flash-0731`。`gpt-image-2-cli` 是 Codex 专属，不会安装到 ZCode。
+- ZCode 变体包含 5 个角色，按统一公式 `模型_版本_类型_思考档` 命名：`glm_5.3_flash_low`（常规取证）、`glm_5.3_flash_high`（深度取证）、`glm_5.3_flash_max`（写代码主力）、`glm_5.3_high`（审核主力）、`glm_5.3_max`（终审）；模型统一使用 ZCode 主用模型 `glm-5.3-flash`。`gpt-image-2-cli` 是 Codex 专属，不会安装到 ZCode。
 - 安装器只管理 `AGENTS.md`、`docs/`、`agents/ai-vibecode-superpower/` 和受管的 skills；不修改 ZCode 的 `cli/`、`v2/`、插件缓存或用户自建的其它 skills/agents。已有的 `AGENTS.md` 会先备份再替换。
 
 **Windows（PowerShell 7）**，在仓库根目录运行：
