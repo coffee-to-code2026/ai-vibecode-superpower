@@ -7,3 +7,4 @@ examples
 /.codegraph/
 node_modules/
 /.zcode/
+.codex-*

@@ -12,7 +12,7 @@
 
 ## 接入顺序
 
-1. 运行 `configure`：仅在不存在冲突时写入 CodeGraph MCP 配置（Codex 写入 `.codex/config.toml`，ZCode 写入 `.zcode/config.json` 的 `mcp.servers`）、`/.codegraph/` 忽略规则及项目根 `AGENTS.md` 的唯一 `## CodeGraph 与 RTK` 受管标题。客户端按项目现有 `.codex/`、`.zcode/` 目录自动探测，两者都有则都接入；都未探测到时，交互终端由驱动询问用户，非交互调用必须传 `--client codex|zcode|both`（按当前会话宿主选择，不确定时先询问用户）。该标题内同时包含运行时工具规则和 `$agent-toolchain` 管理路由；旧版 `## AI 工具` 标题不会被覆盖。
+1. 运行 `configure`：仅在不存在冲突时写入 CodeGraph MCP 配置（Codex 写入 `.codex/config.toml`，ZCode 写入 `.zcode/config.json` 的 `mcp.servers`）、`/.codegraph/` 与所接入客户端目录（Codex 为 `/.codex/`，ZCode 为 `/.zcode/`）的忽略规则及项目根 `AGENTS.md` 的唯一 `## CodeGraph 与 RTK` 受管标题。客户端按项目现有 `.codex/`、`.zcode/` 目录自动探测，两者都有则都接入；都未探测到时，交互终端由驱动询问用户，非交互调用必须传 `--client codex|zcode|both`（按当前会话宿主选择，不确定时先询问用户）。该标题内同时包含运行时工具规则和 `$agent-toolchain` 管理路由；旧版 `## AI 工具` 标题不会被覆盖。
 2. 运行 `bootstrap --dry-run`，核对将安装的受管工具。
 3. 运行 `bootstrap --apply`：CodeGraph 使用官方固定 npm 包且禁用安装脚本；RTK 使用固定官方 release，并校验归档与摘要。
 4. 运行 `init-codegraph`：新建索引，或对已有索引执行一次增量同步。
@@ -32,6 +32,6 @@
 
 ## 安装结果
 
-- 项目配置与索引分开：`.codegraph/` 是本地缓存，不提交。
+- 项目配置与索引均不入库：`.codegraph/` 是本地索引缓存，`.codex/`、`.zcode/` 是本机客户端目录；`configure` 会把对应忽略规则写入项目 `.gitignore`，均不提交。
 - CodeGraph MCP 配置生效通常需要新建会话或重启对应客户端（Codex/ZCode）。
 - `doctor` 通过只证明当前受管工具和索引可用；后续每次实际使用仍须以当前源文件、`rg`、未跟踪文件和刚修改文件复核结果。
