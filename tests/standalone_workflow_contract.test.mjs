@@ -148,11 +148,11 @@ test('zcode workflow skill variant keeps the stages and drops codex-only mechani
 
 test('all five managed zcode agents stay hash-addressed with model routing frontmatter', async () => {
   const expectedAllocation = {
-    'glm_5.3_flash_low.md': { model: 'GLM-5.3-Flash', thoughtLevel: 'low' },
-    'glm_5.3_flash_high.md': { model: 'GLM-5.3-Flash', thoughtLevel: 'high' },
-    'glm_5.3_flash_max.md': { model: 'GLM-5.3-Flash', thoughtLevel: 'max' },
-    'glm_5.3_high.md': { model: 'GLM-5.3', thoughtLevel: 'high' },
-    'glm_5.3_max.md': { model: 'GLM-5.3', thoughtLevel: 'max' }
+    'glm_5.3_flash_low.md': { model: 'deepseek-v4-flash-0731', thoughtLevel: 'low' },
+    'glm_5.3_flash_high.md': { model: 'deepseek-v4-flash-0731', thoughtLevel: 'high' },
+    'glm_5.3_flash_max.md': { model: 'deepseek-v4-flash-0731', thoughtLevel: 'max' },
+    'glm_5.3_high.md': { model: 'deepseek-v4-flash-0731', thoughtLevel: 'high' },
+    'glm_5.3_max.md': { model: 'deepseek-v4-flash-0731', thoughtLevel: 'max' }
   };
   const lines = (await readFile(zcodeManifest, 'utf8')).trim().split(/\r?\n/);
   assert.equal(lines.length, 5);

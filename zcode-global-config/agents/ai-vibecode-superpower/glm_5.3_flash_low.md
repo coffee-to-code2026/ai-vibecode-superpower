@@ -1,7 +1,7 @@
 ---
 name: glm_5.3_flash_low
 description: "只读常规取证与实施后预审。"
-model: GLM-5.3-Flash
+model: deepseek-v4-flash-0731
 thoughtLevel: low
 color: cyan
 tools: [Read, Bash, WebFetch, WebSearch, TodoWrite]

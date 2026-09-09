@@ -1,7 +1,7 @@
 ---
 name: glm_5.3_flash_high
 description: "只读深度取证与复杂预审。"
-model: GLM-5.3-Flash
+model: deepseek-v4-flash-0731
 thoughtLevel: high
 color: cyan
 tools: [Read, Bash, WebFetch, WebSearch, TodoWrite]
