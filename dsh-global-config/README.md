@@ -8,20 +8,27 @@
 | --- | --- | --- |
 | `AGENTS.md` | `opencode-global-config/AGENTS.md` | 全局行为规范；安装到 `$DSH_HOME/AGENTS.md`，由 `dsh-agent-instructions` 在会话首请求加载，加入 `<DSH_HOME>/docs` 系统文档路由。 |
 | `docs/README.md` | `opencode-global-config/docs/README.md` | 系统命令按需路由、平台差异和工具安装说明；与共享 `docs/system/` 组合安装。 |
-| `skills/orchestrate-model-workflow/SKILL.md` | `opencode-global-config/skills/orchestrate-model-workflow/SKILL.md` | 同一五阶段流程；subagent 调度交给 dsh 的 `subagent` 工具（spawn/fork 后端），角色路由表达为模型档选择。 |
+| `skills/orchestrate-model-workflow/SKILL.md` | `opencode-global-config/skills/orchestrate-model-workflow/SKILL.md` | 同一五阶段流程；subagent 调度交给 dsh 的 `subagent` 工具（spawn/fork 后端），角色路由表达为模型与思考档选择。 |
 
-dsh 没有独立 subagent 角色文件机制（区别于 Codex/opencode 的 role/agent 文件），因此 12 个角色不在 dsh 中以文件形式分发，而是由 skill 的角色选择段落描述职责、并用 `$DSH_HOME/settings.yaml` 的模型档落地模型分层。
+dsh 没有独立 subagent 角色文件机制（区别于 Codex/opencode 的 role/agent 文件），因此 12 个角色不在 dsh 中以文件形式分发，而是由 skill 的角色选择段落描述职责、并用 `$DSH_HOME/settings.yaml` 的模型与其 `reasoningEfforts` 落地模型与思考档分层。
 
-## 模型分层
+## 模型与思考档分层
 
-角色分层复用 `~/.dsh/settings.yaml` 的 provider（参考默认 `qpt`），要求同时声明两个模型档：
+角色分层复用 `~/.dsh/settings.yaml` 的 provider（参考默认 `qpt`），要求声明模型 `deepseek-v4.1-flash`，并在该模型条目上声明 `reasoningEfforts`；所有角色共用该模型，差异来自职责、权限与 `reasoning_effort`：
 
-| 模型档 | provider/model | 角色 |
-| --- | --- | --- |
-| Luna(flash) | `qpt` / `deepseek-v4-flash-0731` | 取证、预审、受控写入等常规与低成本路径。 |
-| Terra/Sol(pro) | `qpt` / `deepseek-v4-pro-0813` | 受保护执行、复杂定案、独立复审。 |
+| 角色分组 | provider/model | 思考档 | 角色 |
+| --- | --- | --- | --- |
+| Luna | `qpt` / `deepseek-v4.1-flash` | `low`、`high` | 取证、预审、受控写入等常规与低成本路径。 |
+| Terra | `qpt` / `deepseek-v4.1-flash` | `high`、`max` | 受保护执行、风险分流、集成与常规复审。 |
+| Sol | `qpt` / `deepseek-v4.1-flash` | `high`、`max` | 复杂定案、升级调查与最高强度独立复审。 |
 
-安装脚本只探测并提示这些模型档是否存在，**不写入或覆盖** `settings.yaml`。
+该模型不支持 `medium` 与 `xhigh`；dsh 对不支持的档位直接以 `UNSUPPORTED_REASONING_EFFORT` 拒绝派发、不做钳制，因此 12 个角色已收敛到 `low` / `high` / `max`。模型条目需要形如：
+
+```yaml
+{ id: deepseek-v4.1-flash, name: deepseek-v4.1-flash, input: [text, image], reasoningEfforts: { off: null, low: low, high: high, max: max } }
+```
+
+安装脚本只探测并提示模型档与 `reasoningEfforts` 是否已声明，**不写入或覆盖** `settings.yaml`。
 
 ## 明确不做
 

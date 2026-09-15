@@ -618,13 +618,13 @@ test('opencode sources do not leak other hosts placeholders or model ids', async
   }
 });
 
-test('dsh workflow skill variant keeps the stages and references deepseek model tiers without host leakage', async () => {
+test('dsh workflow skill variant keeps the stages and references the shared deepseek model and effort tiers without host leakage', async () => {
   const text = await readFile(path.join(repository, 'dsh-global-config', 'skills', 'orchestrate-model-workflow', 'SKILL.md'), 'utf8');
   assert.match(text, /^---\r?\nname: orchestrate-model-workflow\r?\n/);
   for (const stage of ['Explore', 'Plan', 'Work', 'Critique', 'Promote']) assert.match(text, new RegExp(`\\b${stage}\\b`));
   for (const role of opencodeRoleNames) assert.match(text, new RegExp(`\\b${role.replace(/\./g, '\\.')}\\b`));
-  assert.match(text, /deepseek-v4-flash-0731/);
-  assert.match(text, /deepseek-v4-pro-0813/);
+  assert.match(text, /deepseek-v4\.1-flash/);
+  assert.match(text, /reasoningEfforts/);
   assert.match(text, /模型_版本_类型_思考档/);
   assert.match(text, /默认并行优先/);
   assert.match(text, /替代仅对本次派发生效，是临时且可重新评估的选择/);
@@ -703,7 +703,7 @@ test('POSIX dsh installer deploys the workflow skill and probes settings.yaml re
     await mkdir(fakeBin, { recursive: true });
     await writeFile(path.join(fakeBin, 'dsh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     await mkdir(dshHome, { recursive: true });
-    const settings = 'providers:\n  qpt:\n    deepseek-v4-flash-0731: {}\n    deepseek-v4-pro-0813: {}\n';
+    const settings = 'providers:\n  qpt:\n    models:\n      - id: deepseek-v4.1-flash\n        reasoningEfforts: { off: null, low: low, high: high, max: max }\n';
     await writeFile(path.join(dshHome, 'settings.yaml'), settings);
     const result = await runResult(shell, ['install.sh', 'dsh'], {
       cwd: repository,

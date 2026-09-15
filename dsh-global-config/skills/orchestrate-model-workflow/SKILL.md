@@ -25,37 +25,40 @@ description: "用于复杂开发、跨文件实现或修复、架构设计、Bug
 - 主 agent 只采纳当前直接子 agent 的结果；其他会话的消息视为外部信息，不自动合并。
 - 本 skill 不创建额外的插件、preset 或固定消息协议；角色只作为委派时的模型与职责选择依据，由 dsh 的 `subagent` 工具按 provider/model 落地。
 
-## 模型档与角色
+## 模型与思考档分层
 
-dsh 没有独立 subagent 角色文件机制（区别于 Codex/opencode 的 role/agent 文件），本适配不分发角色文件，而是用低于 `$DSH_HOME/settings.yaml` 的模型档表达角色分层；角色命名沿用统一公式 `模型_版本_类型_思考档`（如 `deepseek_v4_flash_luna_high`），只作为委派时选择模型档与职责的依据。适配生效需要 provider 同时提供两个模型档，默认已配置的 qpt provider 对应关系：
+dsh 没有独立 subagent 角色文件机制（区别于 Codex/opencode 的 role/agent 文件），本适配不分发角色文件，而是用低于 `$DSH_HOME/settings.yaml` 的模型与思考档表达角色分层；角色命名沿用统一公式 `模型_版本_类型_思考档`（如 `deepseek_v4_flash_luna_high`），只作为委派时选择模型与职责的依据。所有角色共用同一个模型，差异只来自职责、权限和 `reasoning_effort`：
 
-| 模型档 | provider/model | 用途 |
-| --- | --- | --- |
-| Luna(flash) | `qpt` / `deepseek-v4-flash-0731` | 常规跨文件取证、受控写入、复用和成本优先。 |
-| Terra/Sol(pro) | `qpt` / `deepseek-v4-pro-0813` | 受保护执行、复杂定案、独立复审，判断强度更高。 |
+| 角色分组 | provider/model | 思考档（`reasoning_effort`） | 用途 |
+| --- | --- | --- | --- |
+| Luna | `qpt` / `deepseek-v4.1-flash` | `low`、`high` | 常规跨文件取证、受控写入、复用和成本优先。 |
+| Terra | `qpt` / `deepseek-v4.1-flash` | `high`、`max` | 受保护执行、风险分流、集成和常规复审。 |
+| Sol | `qpt` / `deepseek-v4.1-flash` | `high`、`max` | 复杂定案、升级调查和最高强度独立复审。 |
+
+适配生效需要 `qpt` provider 声明 `deepseek-v4.1-flash`，并在该模型条目上声明 `reasoningEfforts`（`low` / `high` / `max`）。该模型不支持 `medium` 与 `xhigh`：dsh 不会把不支持的档位钳制到邻近档位，而是直接以 `UNSUPPORTED_REASONING_EFFORT` 拒绝派发，因此下面的角色选择把 12 个角色收敛到 `low` / `high` / `max`。角色名中的思考档后缀沿用统一公式和 opencode 角色名，不代表实际 `reasoning_effort`；实际值以角色选择列表为准。
 
 ## 角色选择
 
-- `deepseek_v4_flash_luna_high`：常规跨文件取证、扫描和预审，只读，用 flash 档。
-- `deepseek_v4_flash_luna_xhigh`：需要更深局部理解的取证和复杂预审，只读，用 flash 档。
-- `deepseek_v4_flash_luna_high_executor`：目标、授权、范围、验收和停止条件已明确时的受控写入，用 flash 档。
-- `deepseek_v4_flash_luna_xhigh_executor`：已定方案但需要更深局部理解的受控写入，只用 flash 档加深局部推理、不增加权限。
-- `deepseek_v4_pro_terra_high`：受保护写入、共享状态、风险分流、执行监管和集成，用 pro 档。
-- `deepseek_v4_pro_terra_xhigh`：证据充分、范围有界的定案或常规复审，只读，用 pro 档。
-- `deepseek_v4_pro_terra_xhigh_readonly`：Sol 只读角色或模型本次确认不可用时，替代同一复审职责，只读并说明独立性下降，用 pro 档。
-- `deepseek_v4_pro_terra_low_readonly`：Luna/high 只读阶段本次确认不可用时，替代同一只读取证或预审职责，用 pro 档。
-- `deepseek_v4_pro_terra_medium_readonly`：Luna/xhigh 只读阶段本次确认不可用时，替代同一只读取证或预审职责，用 pro 档。
-- `deepseek_v4_pro_sol_high`：多约束、跨域或高复杂度的独立复审，只读，用 pro 档。
-- `deepseek_v4_pro_sol_xhigh`：证据冲突、根因未证实、缺少可靠 oracle 或需受约束重设计，只读，用 pro 档。
-- `deepseek_v4_pro_sol_max`：最高强度的独立复审与最终升级验收，只读，用 pro 档。
+- `deepseek_v4_flash_luna_high`：常规跨文件取证、扫描和预审，只读，`reasoning_effort=low`。
+- `deepseek_v4_flash_luna_xhigh`：需要更深局部理解的取证和复杂预审，只读，`reasoning_effort=high`。
+- `deepseek_v4_flash_luna_high_executor`：目标、授权、范围、验收和停止条件已明确时的受控写入，`reasoning_effort=low`。
+- `deepseek_v4_flash_luna_xhigh_executor`：已定方案但需要更深局部理解的受控写入，`reasoning_effort=high`；只加深局部推理、不增加权限。
+- `deepseek_v4_pro_terra_high`：受保护写入、共享状态、风险分流、执行监管和集成，`reasoning_effort=high`。
+- `deepseek_v4_pro_terra_xhigh`：证据充分、范围有界的定案或常规复审，只读，`reasoning_effort=high`。
+- `deepseek_v4_pro_terra_xhigh_readonly`：Sol 只读角色或模型本次确认不可用时，替代同一复审职责，只读并说明独立性下降，`reasoning_effort=max`。
+- `deepseek_v4_pro_terra_low_readonly`：Luna/high 只读阶段本次确认不可用时，替代同一只读取证或预审职责，`reasoning_effort=high`。
+- `deepseek_v4_pro_terra_medium_readonly`：Luna/xhigh 只读阶段本次确认不可用时，替代同一只读取证或预审职责，`reasoning_effort=high`。
+- `deepseek_v4_pro_sol_high`：多约束、跨域或高复杂度的独立复审，只读，`reasoning_effort=high`。
+- `deepseek_v4_pro_sol_xhigh`：证据冲突、根因未证实、缺少可靠 oracle 或需受约束重设计，只读，`reasoning_effort=max`。
+- `deepseek_v4_pro_sol_max`：最高强度的独立复审与最终升级验收，只读，`reasoning_effort=max`。
 
-风险、权限、上下文和验收条件相当且角色可用时，默认优先选择 Luna(flash)；只有职责确实需要受保护执行、复杂定案或独立复审时才选择 Terra 或 Sol(pro)。角色分层沿用统一公式：取证优先选择较低成本档位，写入先在两个 Luna executor 之间选择，受保护写入交给 Terra，复审从 Terra/xhigh 起步，最高强度使用 Sol/max。每次委派都先核验当前宿主权限、provider 和模型档可用性；只有本次明确确认不可用时，才为本次操作选择职责、权限和验收能力等价的替代，并保留原始错误和发生时点。等价替代只有向上替补：只读取证角色不可用时按档位向上替补相同只读职责（`deepseek_v4_flash_luna_high` 由 `deepseek_v4_pro_terra_low_readonly` 替代，`deepseek_v4_flash_luna_xhigh` 由 `deepseek_v4_pro_terra_medium_readonly` 替代）；只读复审角色不可用时由档位不低于原角色的 Sol 角色替代（如 `deepseek_v4_pro_terra_xhigh` 由 `deepseek_v4_pro_sol_high` 替代）；两个 Luna executor 是唯一等价写入对，都不可用时没有等价替代。反向降档不构成等价替代；`deepseek_v4_pro_terra_high` 不可用时没有等价替代。无法证明等价时停止并报告。替代仅对本次派发生效，是临时且可重新评估的选择；重试、进入下一阶段或再次需要该角色时必须重新探测，恢复后优先回到原始角色。普通超时、证据不足或执行失败不应被静默降级。
+风险、权限、上下文和验收条件相当且角色可用时，默认优先选择较低的 `reasoning_effort`；只有职责确实需要受保护执行、复杂定案或独立复审时才提升档位。角色分层沿用统一公式：取证优先选择较低思考档，写入先在两个 Luna executor 之间选择，受保护写入交给 Terra，复审从 Terra/xhigh 起步，最高强度使用 Sol/max。每次委派都先核验当前宿主权限、provider、模型档和 `reasoningEfforts` 声明；只有本次明确确认不可用时，才为本次操作选择职责、权限、验收能力和思考档都不低于原角色的替代，并保留原始错误和发生时点。等价替代只有向上替补：只读取证角色不可用时按档位向上替补相同只读职责（`deepseek_v4_flash_luna_high` 由 `deepseek_v4_pro_terra_low_readonly` 替代，`deepseek_v4_flash_luna_xhigh` 由 `deepseek_v4_pro_terra_medium_readonly` 替代）；只读复审角色不可用时由档位不低于原角色的 Sol 角色替代（如 `deepseek_v4_pro_terra_xhigh` 由 `deepseek_v4_pro_sol_high` 替代）；两个 Luna executor 是唯一等价写入对，都不可用时没有等价替代。反向降档不构成等价替代；`deepseek_v4_pro_terra_high` 不可用时没有等价替代。无法证明等价时停止并报告。替代仅对本次派发生效，是临时且可重新评估的选择；重试、进入下一阶段或再次需要该角色时必须重新探测，恢复后优先回到原始角色。普通超时、证据不足或执行失败不应被静默降级。
 
 ## 阶段要求
 
 ### Explore
 
-检查相关代码、配置、文档、测试、调用关系和当前 diff；把互补且只读的独立证据域优先交给多个 Luna(flash) subagent 并行取证。输出事实、来源、推断、未知项、风险和下一步，不把线索直接定性为缺陷。
+检查相关代码、配置、文档、测试、调用关系和当前 diff；把互补且只读的独立证据域优先交给多个 Luna 只读 subagent（`reasoning_effort=low` 或 `high`）并行取证。输出事实、来源、推断、未知项、风险和下一步，不把线索直接定性为缺陷。
 
 ### Plan
 
@@ -63,11 +66,11 @@ dsh 没有独立 subagent 角色文件机制（区别于 Codex/opencode 的 role
 
 ### Work
 
-按已定契约实施。受控、可恢复且验证可靠的写入可交给 Luna executor(flash)；不可逆变更、外部副作用、共享状态或风险未受控时由 Terra 保护执行(pro)。每个 agent 只能修改事先分配的最小范围，不得覆盖其他 agent；边界清晰的工作保持并行。执行者返回实际改动、验证结果、原始错误、影响范围和未完成项；主 agent 集成前核对状态和 diff，不把自述当作完成证明。
+按已定契约实施。受控、可恢复且验证可靠的写入可交给 Luna executor（`reasoning_effort=low` 或 `high`）；不可逆变更、外部副作用、共享状态或风险未受控时由 Terra 保护执行（`reasoning_effort=high`）。每个 agent 只能修改事先分配的最小范围，不得覆盖其他 agent；边界清晰的工作保持并行。执行者返回实际改动、验证结果、原始错误、影响范围和未完成项；主 agent 集成前核对状态和 diff，不把自述当作完成证明。
 
 ### Critique
 
-完成实施及相关验证后，由未参与写入的只读角色独立核对目标、范围、diff/产物、测试、回归、需求覆盖和未验证项。常规定案可用 Terra/xhigh(pro)；复杂或高不确定性使用 Sol。发现 blocker 时回到 Plan/Work 精确修复，再选择新的独立复审者；不得把失败包装为通过。
+完成实施及相关验证后，由未参与写入的只读角色独立核对目标、范围、diff/产物、测试、回归、需求覆盖和未验证项。常规定案可用 Terra/xhigh（`reasoning_effort=high`）；复杂或高不确定性使用 Sol（`reasoning_effort=max`）。发现 blocker 时回到 Plan/Work 精确修复，再选择新的独立复审者；不得把失败包装为通过。
 
 ### Promote
 

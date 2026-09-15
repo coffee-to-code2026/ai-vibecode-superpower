@@ -142,7 +142,7 @@ sh ./install.sh opencode
 
 ### DSH
 
-DeepSeek Harness 适配分发全局行为规范与 `orchestrate-model-workflow`（dsh 变体），角色分层用 `$DSH_HOME/settings.yaml`（默认 `~/.dsh`，参考 `qpt` provider）的 `deepseek-v4-flash-0731` / `deepseek-v4-pro-0813` 两个模型档表达；dsh 没有角色文件机制，`agent-toolchain` 因无项目级 MCP 落点而不分发。安装器只探测并提示 `settings.yaml` 是否已声明两个模型档，不写入或覆盖。
+DeepSeek Harness 适配分发全局行为规范与 `orchestrate-model-workflow`（dsh 变体），角色分层用 `$DSH_HOME/settings.yaml`（默认 `~/.dsh`，参考 `qpt` provider）的 `deepseek-v4.1-flash` 模型及其 `reasoningEfforts`（`low` / `high` / `max`）表达；dsh 没有角色文件机制，`agent-toolchain` 因无项目级 MCP 落点而不分发。安装器只探测并提示该模型档与 `reasoningEfforts` 是否已声明，不写入或覆盖。
 
 **macOS 或 Linux**：
 

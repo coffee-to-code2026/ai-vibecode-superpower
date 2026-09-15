@@ -527,16 +527,16 @@ try {
             Write-Host '检查模型分层配置 ...'
             if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
                 $settingsText = Get-Content -LiteralPath $settingsPath -Raw
-                $flashOk = $settingsText -match 'deepseek-v4-flash-0731'
-                $proOk = $settingsText -match 'deepseek-v4-pro-0813'
-                if ($flashOk -and $proOk) {
-                    Write-Host '已检测到 flash 与 pro 两个模型档，分层可用。'
+                $modelOk = $settingsText -match 'deepseek-v4\.1-flash'
+                $effortOk = $settingsText -match 'reasoningEfforts'
+                if ($modelOk -and $effortOk) {
+                    Write-Host '已检测到 deepseek-v4.1-flash 模型档与 reasoningEfforts 声明，分层可用。'
                 } else {
-                    Write-Host '注意：settings.yaml 未同时包含 deepseek-v4-flash-0731 与 deepseek-v4-pro-0813。'
-                    Write-Host 'orchestrate-model-workflow 的 Luna(flash)/Terra+Sol(pro) 分层需要这两个模型档，请按需补充。'
+                    Write-Host '注意：settings.yaml 未同时包含 deepseek-v4.1-flash 与 reasoningEfforts 声明。'
+                    Write-Host 'orchestrate-model-workflow 的角色分层需要该模型档及其 reasoningEfforts（low/high/max），请按需补充。'
                 }
             } else {
-                Write-Host "未找到 $settingsPath；模型分层请按需在 DSH 配置中声明两个模型档。"
+                Write-Host "未找到 $settingsPath；模型分层请按需在 DSH 配置中声明 deepseek-v4.1-flash 与 reasoningEfforts。"
             }
         }
     }

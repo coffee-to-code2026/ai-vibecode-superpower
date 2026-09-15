@@ -369,16 +369,16 @@ dsh_probe_settings() {
     settings_path=$client_home/settings.yaml
     printf '%s\n' '检查模型分层配置 ...'
     if [ -f "$settings_path" ]; then
-        flash_ok=$(grep -c 'deepseek-v4-flash-0731' "$settings_path" 2>/dev/null || true)
-        pro_ok=$(grep -c 'deepseek-v4-pro-0813' "$settings_path" 2>/dev/null || true)
-        if [ "${flash_ok:-0}" != "0" ] && [ "${pro_ok:-0}" != "0" ]; then
-            printf '%s\n' '已检测到 flash 与 pro 两个模型档，分层可用。'
+        model_ok=$(grep -c 'deepseek-v4.1-flash' "$settings_path" 2>/dev/null || true)
+        effort_ok=$(grep -c 'reasoningEfforts' "$settings_path" 2>/dev/null || true)
+        if [ "${model_ok:-0}" != "0" ] && [ "${effort_ok:-0}" != "0" ]; then
+            printf '%s\n' '已检测到 deepseek-v4.1-flash 模型档与 reasoningEfforts 声明，分层可用。'
         else
-            printf '%s\n' '注意：settings.yaml 未同时包含 deepseek-v4-flash-0731 与 deepseek-v4-pro-0813。'
-            printf '%s\n' 'orchestrate-model-workflow 的 Luna(flash)/Terra+Sol(pro) 分层需要这两个模型档，请按需补充。'
+            printf '%s\n' '注意：settings.yaml 未同时包含 deepseek-v4.1-flash 与 reasoningEfforts 声明。'
+            printf '%s\n' 'orchestrate-model-workflow 的角色分层需要该模型档及其 reasoningEfforts（low/high/max），请按需补充。'
         fi
     else
-        printf '未找到 %s。模型分层请按需在 DSH 配置中声明两个模型档。\n' "$settings_path"
+        printf '未找到 %s。模型分层请按需在 DSH 配置中声明 deepseek-v4.1-flash 与 reasoningEfforts。\n' "$settings_path"
     fi
 }
 
